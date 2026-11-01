@@ -39,6 +39,7 @@ extern "C"
     #include <libavformat/avformat.h>
     #include <libswscale/swscale.h>
     #include <libswresample/swresample.h>
+    #include <libavutil/pixdesc.h>
 }
 
 //=============================================================================
@@ -426,6 +427,8 @@ void radMoviePlayer::Unload( void )
 {
     if( m_State != IRadMoviePlayer2::NoData )
     {
+        LogStats( "Unload" );
+
         alSourceStop( m_AudioSource );
         FlushAudioQueue();
         alDeleteSources( 1, &m_AudioSource );
@@ -674,6 +677,8 @@ void radMoviePlayer::Service( void )
                             m_refIRadMovieRenderStrategy->UnlockDestination();
                         }
                     }
+
+                    m_DecodeTimeMs += radMovieMsSince( decodeStart );
                 }
                 else if( m_AudioTrackIndex > 0 && m_pPacket->stream_index == m_AudioTrackIndex )
                 {
@@ -734,13 +739,20 @@ void radMoviePlayer::Service( void )
 
                 unsigned int currentTime = m_refIRadStopwatch->GetElapsedTime();
                 
-                if( currentTime > m_PresentationTime &&
-                    currentTime <= m_PresentationTime + m_PresentationDuration + RAD_MOVIE_PLAYER_VIDEO_LAG )
+                const bool onTime = currentTime > m_PresentationTime &&
+                    currentTime <= m_PresentationTime + m_PresentationDuration + RAD_MOVIE_PLAYER_VIDEO_LAG;
+                const bool stalled = currentTime > m_PresentationTime + m_PresentationDuration &&
+                    currentTime - m_LastRenderTime >= RAD_MOVIE_PLAYER_MAX_STALL;
+
+                if( onTime || stalled )
                 {
+                    // Late frames are still shown if nothing was rendered for a while
+                    // (slow decoder), so the screen never stays black.
                     m_refIRadMovieRenderLoop->IterateLoop( this );
                 }
                 else if( currentTime > m_PresentationTime + m_PresentationDuration )
                 {
+                    ++m_FramesDropped;
                     rTunePrintf( "radMoviePlayer: NOT RENDERING THIS FRAME (must catch up)\n" );
                     rTunePrintf( "current time[ %d ] expected presentation time[ %d ~ %d ]\n",
                         currentTime, m_PresentationTime, m_PresentationTime + m_PresentationDuration );
