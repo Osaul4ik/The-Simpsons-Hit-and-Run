@@ -42,8 +42,8 @@ jobs:
           path: ffmpeg-vita
           key: ffmpeg-vita-${{ hashFiles('scripts/build-ffmpeg-vita.sh') }}
 
+      # The script returns immediately if a complete build is already in the cache
       - name: Build FFmpeg with Theora
-        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
         run: bash scripts/build-ffmpeg-vita.sh "$GITHUB_WORKSPACE/ffmpeg-vita"
 
       - name: Configure
@@ -59,6 +59,11 @@ jobs:
 
       - name: Build
         run: cmake --build build --parallel "$(nproc)"
+
+      - name: Check Theora decoder is linked
+        run: |
+          arm-vita-eabi-nm build/code/SRR2 | grep -q ff_theora_decoder \
+            || { echo "::error::Theora decoder missing: the stock vitasdk FFmpeg was linked"; exit 1; }
 
       - name: Locate VPK
         id: vpk

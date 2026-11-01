@@ -248,6 +248,11 @@ void radMoviePlayer::Load( const char * pVideoFileName, unsigned int audioTrackI
     SetState( IRadMoviePlayer2::Loading );
 
     m_pFormatCtx = avformat_alloc_context();
+    // Bound the probing: without a usable decoder avformat_find_stream_info keeps
+    // reading until its (large) default limits, which froze the game for ~24 s per
+    // movie on the Vita. The Ogg headers are in the first few KB, so this is plenty.
+    m_pFormatCtx->probesize = 512 * 1024;
+    m_pFormatCtx->max_analyze_duration = 1000000;
     AV_LOAD_CHK( avformat_open_input( &m_pFormatCtx, pVideoFileName, NULL, NULL ) );
     const unsigned int openMs = radMovieMsSince( loadStart );
     AV_LOAD_CHK( avformat_find_stream_info( m_pFormatCtx, NULL ) );

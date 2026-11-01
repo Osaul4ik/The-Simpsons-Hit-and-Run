@@ -122,6 +122,19 @@ else()
 			libswresample
 			libswscale
 	)
+	if(SRR2_FFMPEG_PREFIX)
+		# pkg-config can still resolve to the stock vitasdk FFmpeg (no Theora, with
+		# libmp3lame), so link the custom static libraries by absolute path.
+		set(_ffl "${SRR2_FFMPEG_PREFIX}/lib")
+		foreach(_lib avformat avcodec swresample swscale avutil)
+			if(NOT EXISTS "${_ffl}/lib${_lib}.a")
+				message(FATAL_ERROR "${_ffl}/lib${_lib}.a not found: run scripts/build-ffmpeg-vita.sh")
+			endif()
+		endforeach()
+		set_property(TARGET PkgConfig::FFmpeg PROPERTY INTERFACE_INCLUDE_DIRECTORIES "${SRR2_FFMPEG_PREFIX}/include")
+		set_property(TARGET PkgConfig::FFmpeg PROPERTY INTERFACE_LINK_LIBRARIES
+			"${_ffl}/libavformat.a;${_ffl}/libavcodec.a;${_ffl}/libswresample.a;${_ffl}/libswscale.a;${_ffl}/libavutil.a;m;pthread")
+	endif()
 	if(VITA)
 		# libmp3lame.a (pulled in by FFmpeg) needs mpg123, but its pkg-config file
 		# does not list it. Make it a dependency of FFmpeg so that it is placed
