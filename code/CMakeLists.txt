@@ -587,11 +587,6 @@ if(SRR2_USE_BINK)
 	target_link_libraries(${PROJECT_NAME} bink)
 else()
 	target_link_libraries(${PROJECT_NAME} PkgConfig::FFmpeg)
-	if(VITA)
-		# libmp3lame.a (pulled in by FFmpeg) needs mpg123, but its pkg-config file
-		# does not list it. It must come after FFmpeg on the link line.
-		target_link_libraries(${PROJECT_NAME} mpg123)
-	endif()
 endif()
 
 option(SRR2_USE_PCH ON)

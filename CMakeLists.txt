@@ -108,6 +108,12 @@ else()
 			libswresample
 			libswscale
 	)
+	if(VITA)
+		# libmp3lame.a (pulled in by FFmpeg) needs mpg123, but its pkg-config file
+		# does not list it. Make it a dependency of FFmpeg so that it is placed
+		# after libmp3lame on every link line that uses FFmpeg.
+		target_link_libraries(PkgConfig::FFmpeg INTERFACE mpg123)
+	endif()
 endif()
 if(SRR2_MICROPROFILE)
 	add_definitions(-DMICROPROFILE_ENABLED)
