@@ -35,6 +35,13 @@ jobs:
       - name: Build
         run: cmake --build build --parallel "$(nproc)"
 
+      - name: Diagnose link failure
+        if: failure()
+        run: |
+          grep -n "mpg123" code/CMakeLists.txt || echo "mpg123 is NOT in code/CMakeLists.txt"
+          ls "$VITASDK/arm-vita-eabi/lib" | grep -E "mpg123|mp3lame" || true
+          cat build/code/CMakeFiles/SRR2.dir/link.txt || true
+
       - name: Locate VPK
         id: vpk
         run: |
