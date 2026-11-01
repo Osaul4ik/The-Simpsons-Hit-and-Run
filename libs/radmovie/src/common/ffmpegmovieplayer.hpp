@@ -108,6 +108,7 @@ class radMoviePlayer
         void InternalPlay( void );
         void FlushAudioQueue( void );
         void FailLoad( int error, const char * what );
+        void LogStats( const char * reason );
 
         ref< IRadMovieRenderStrategy > m_refIRadMovieRenderStrategy;
         ref< IRadMovieRenderLoop > m_refIRadMovieRenderLoop;
@@ -123,6 +124,13 @@ class radMoviePlayer
         int m_AudioTrackIndex;
         unsigned int m_PresentationTime;
         unsigned int m_PresentationDuration;
+
+        // Playback statistics, logged when the movie ends (see LogStats)
+        unsigned int m_LastRenderTime;      // stopwatch time (ms) of the last rendered frame
+        unsigned int m_FramesDecoded;
+        unsigned int m_FramesRendered;
+        unsigned int m_FramesDropped;
+        unsigned int m_DecodeTimeMs;        // total time spent in avcodec_send_packet/receive_frame
 
         AVFormatContext* m_pFormatCtx;
         AVCodecContext * m_pVideoCtx;

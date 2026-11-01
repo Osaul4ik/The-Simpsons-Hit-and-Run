@@ -31,6 +31,7 @@
 #include "audiodatasource.hpp"
 
 #include <vector>
+#include <chrono>
 
 extern "C"
 {
@@ -59,6 +60,22 @@ unsigned int const radMovie_NoAudioTrack = 0xFFFFFFFF;
 //
 
 #define RAD_MOVIE_PLAYER_VIDEO_LAG 10
+
+//
+// If the decoder cannot keep up (slow CPU), every frame arrives late and the
+// catch-up logic would drop all of them, leaving a black screen. To always show
+// something, a late frame is still rendered when nothing has been rendered for
+// this many milliseconds (the movie then plays as a slideshow instead).
+//
+
+#define RAD_MOVIE_PLAYER_MAX_STALL 100
+
+// Milliseconds elapsed since 'start' (used for the load/decode timing logs)
+static unsigned int radMovieMsSince( std::chrono::steady_clock::time_point start )
+{
+    return (unsigned int)std::chrono::duration_cast< std::chrono::milliseconds >(
+        std::chrono::steady_clock::now( ) - start ).count( );
+}
 
 // Used while playing: report the error and stop the movie.
 #define AV_CHK(x) { \
@@ -109,6 +126,11 @@ radMoviePlayer::radMoviePlayer( void )
     m_AudioTrackIndex( 0 ),
     m_PresentationTime( 0 ),
     m_PresentationDuration( 0 ),
+    m_LastRenderTime( 0 ),
+    m_FramesDecoded( 0 ),
+    m_FramesRendered( 0 ),
+    m_FramesDropped( 0 ),
+    m_DecodeTimeMs( 0 ),
     m_pFormatCtx( NULL ),
     m_pVideoCtx( NULL ),
     m_pAudioCtx( NULL ),
@@ -167,6 +189,9 @@ bool radMoviePlayer::Render( void )
     {
         bool ret = m_refIRadMovieRenderStrategy->Render( );
 
+        m_LastRenderTime = m_refIRadStopwatch->GetElapsedTime( );
+        ++m_FramesRendered;
+
         ALint state;
         alGetSourcei( m_AudioSource, AL_SOURCE_STATE, &state );
         if( state != AL_PLAYING )  // have we fallen behind, if so reset
@@ -198,7 +223,17 @@ void radMoviePlayer::Load( const char * pVideoFileName, unsigned int audioTrackI
     rAssert( m_State == IRadMoviePlayer2::NoData );
     rAssert( pVideoFileName != NULL );
 
-    rDebugPrintf( "radMoviePlayer: Loading %s\n", pVideoFileName );
+    // rReleasePrintf, not rDebugPrintf: the latter is compiled out in release builds
+    // and these lines are needed to diagnose movies on the device (log.txt).
+    rReleasePrintf( "radMoviePlayer: Loading %s\n", pVideoFileName );
+
+    const std::chrono::steady_clock::time_point loadStart = std::chrono::steady_clock::now( );
+
+    m_LastRenderTime = 0;
+    m_FramesDecoded = 0;
+    m_FramesRendered = 0;
+    m_FramesDropped = 0;
+    m_DecodeTimeMs = 0;
 
     m_refIRadStopwatch->Stop( );
     m_refIRadStopwatch->Reset( );
@@ -213,7 +248,9 @@ void radMoviePlayer::Load( const char * pVideoFileName, unsigned int audioTrackI
 
     m_pFormatCtx = avformat_alloc_context();
     AV_LOAD_CHK( avformat_open_input( &m_pFormatCtx, pVideoFileName, NULL, NULL ) );
+    const unsigned int openMs = radMovieMsSince( loadStart );
     AV_LOAD_CHK( avformat_find_stream_info( m_pFormatCtx, NULL ) );
+    const unsigned int probeMs = radMovieMsSince( loadStart ) - openMs;
 
     const AVCodec* pVideoCodec = NULL;
     int videoIndex = av_find_best_stream( m_pFormatCtx, AVMEDIA_TYPE_VIDEO, -1, -1, &pVideoCodec, 0 );
@@ -228,7 +265,7 @@ void radMoviePlayer::Load( const char * pVideoFileName, unsigned int audioTrackI
             const AVCodecParameters* p = m_pFormatCtx->streams[i]->codecpar;
             if( p->codec_type == AVMEDIA_TYPE_VIDEO )
             {
-                rDebugPrintf( "radMoviePlayer: video stream %u uses codec '%s' (id %d)\n",
+                rReleasePrintf( "radMoviePlayer: video stream %u uses codec '%s' (id %d)\n",
                     i, avcodec_get_name( p->codec_id ), (int)p->codec_id );
             }
         }
@@ -265,7 +302,7 @@ void radMoviePlayer::Load( const char * pVideoFileName, unsigned int audioTrackI
         if( audioIndex < 0 )
         {
             // No usable audio track (missing or no decoder): play the video silently.
-            rDebugPrintf( "radMoviePlayer: no usable audio track %u (error %d), playing without sound\n",
+            rReleasePrintf( "radMoviePlayer: no usable audio track %u (error %d), playing without sound\n",
                 audioTrackIndex, audioIndex );
             m_AudioTrackIndex = 0;
         }
@@ -317,12 +354,15 @@ void radMoviePlayer::Load( const char * pVideoFileName, unsigned int audioTrackI
     //
     // Print out some helpful information
     //
-    rDebugPrintf( "\nradMoviePlayer: Summary\n" \
-                  "     * Resolution         [%dx%d]\n" \
-                  "     * Format             [%d]\n" \
-                  "     * Audio Track        [%d]\n\n",
+    const AVStream* pVideoStream = m_pFormatCtx->streams[m_VideoTrackIndex];
+    rReleasePrintf( "radMoviePlayer: Summary %dx%d codec=%s pix_fmt=%s fps=%d/%d (video stream %d, audio track %d) "
+                    "open=%ums probe=%ums\n",
         pVideoParams->width, pVideoParams->height,
-        pVideoParams->format, m_AudioTrackIndex );
+        avcodec_get_name( pVideoParams->codec_id ),
+        av_get_pix_fmt_name( (AVPixelFormat)pVideoParams->format ),
+        pVideoStream->avg_frame_rate.num, pVideoStream->avg_frame_rate.den,
+        m_VideoTrackIndex, m_AudioTrackIndex,
+        openMs, probeMs );
 
     // The buffered data source's input must be set before the stream player's
 
@@ -343,7 +383,7 @@ void radMoviePlayer::FailLoad( int error, const char * what )
 {
     char str[AV_ERROR_MAX_STRING_SIZE] = "";
     av_strerror( error, str, AV_ERROR_MAX_STRING_SIZE );
-    rDebugPrintf( "radMoviePlayer: Load failed in %s: %s (%d)\n", what, str, error );
+    rReleasePrintf( "radMoviePlayer: Load failed in %s: %s (%d)\n", what, str, error );
 
 #ifndef RAD_VITAGL
     sws_freeContext( m_pSwsCtx );
@@ -362,6 +402,20 @@ void radMoviePlayer::FailLoad( int error, const char * what )
 
     m_VideoFrameState = VideoFrame_Unlocked;
     SetState( IRadMoviePlayer2::NoData );
+}
+
+//=============================================================================
+// radMoviePlayer::LogStats
+//
+// One line per movie telling how playback went. If 'decode_time' is close to or
+// larger than 'played', the CPU cannot decode the movie in real time.
+//=============================================================================
+
+void radMoviePlayer::LogStats( const char * reason )
+{
+    rReleasePrintf( "radMoviePlayer: %s: decoded=%u rendered=%u dropped=%u decode_time=%ums played=%ums last_pts=%ums\n",
+        reason, m_FramesDecoded, m_FramesRendered, m_FramesDropped, m_DecodeTimeMs,
+        m_refIRadStopwatch->GetElapsedTime( ), m_PresentationTime );
 }
 
 //=============================================================================
@@ -552,6 +606,8 @@ void radMoviePlayer::Service( void )
             {
                 if( m_pPacket->stream_index == m_VideoTrackIndex )
                 {
+                    const std::chrono::steady_clock::time_point decodeStart = std::chrono::steady_clock::now( );
+
                     AV_CHK( avcodec_send_packet( m_pVideoCtx, m_pPacket ) );
 
                     //
@@ -560,6 +616,8 @@ void radMoviePlayer::Service( void )
 
                     while( avcodec_receive_frame( m_pVideoCtx, m_pVideoFrame ) >= 0 )
                     {
+                        ++m_FramesDecoded;
+
                         // Reset the list of render destinations
 
                         m_refIRadMovieRenderStrategy->ResetDestinations();
@@ -574,11 +632,29 @@ void radMoviePlayer::Service( void )
                             uint8_t* pDest = (uint8_t*)dest.m_pDest;
 
 #ifdef RAD_VITAGL
-                            memcpy( pDest, m_pVideoFrame->data[0], m_pVideoFrame->linesize[0] * m_pVideoFrame->height );
-                            pDest += m_pVideoFrame->linesize[0] * m_pVideoFrame->height;
-                            memcpy( pDest, m_pVideoFrame->data[1], m_pVideoFrame->linesize[1] * m_pVideoFrame->height / 2 );
-                            pDest += m_pVideoFrame->linesize[1] * m_pVideoFrame->height / 2;
-                            memcpy( pDest, m_pVideoFrame->data[2], m_pVideoFrame->linesize[2] * m_pVideoFrame->height / 2 );
+                            // The destination is a tightly packed YUV420P image (stride == width).
+                            // FFmpeg's planes are padded (linesize >= width), so copy row by row
+                            // instead of copying linesize * height bytes in one go.
+                            {
+                                const int w = m_pVideoFrame->width;
+                                const int h = m_pVideoFrame->height;
+                                const int cw = ( w + 1 ) / 2;
+                                const int ch = ( h + 1 ) / 2;
+
+                                for( int y = 0; y < h; ++y )
+                                {
+                                    memcpy( pDest, m_pVideoFrame->data[0] + y * m_pVideoFrame->linesize[0], w );
+                                    pDest += w;
+                                }
+                                for( int p = 1; p <= 2; ++p )
+                                {
+                                    for( int y = 0; y < ch; ++y )
+                                    {
+                                        memcpy( pDest, m_pVideoFrame->data[p] + y * m_pVideoFrame->linesize[p], cw );
+                                        pDest += cw;
+                                    }
+                                }
+                            }
 #else
 
                             // If one of these copies fail, we'll have to skip this frame
