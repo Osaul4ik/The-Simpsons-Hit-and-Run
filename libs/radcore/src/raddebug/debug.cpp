@@ -348,7 +348,7 @@ void rDebugString_Implementation( const char * pString )
 //
 // Notes:
 //------------------------------------------------------------------------------
-#if defined( RAD_RELEASE )
+#if defined( RAD_RELEASE ) && !defined( RAD_LOG )
 bool g_AllowDebugOutput = false;
 #else
 bool g_AllowDebugOutput = true;
@@ -622,4 +622,3 @@ void rDebugSetOutputHandler( radDebugOutputHandler * pOutputProc )
         g_pDebugHandler = rDebuggerString_Implementation;
     }
 }
-

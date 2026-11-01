@@ -5,6 +5,15 @@ on:
     branches: [ main, master ]
   pull_request:
   workflow_dispatch:
+    inputs:
+      log:
+        description: Write debug output to ux0:data/simpsons/log.txt
+        type: boolean
+        default: true
+      heap_mb:
+        description: Newlib heap size in MB (the app has 368 MB in extended memory mode)
+        type: string
+        default: '304'
 
 jobs:
   build:
@@ -30,17 +39,12 @@ jobs:
             -DCMAKE_TOOLCHAIN_FILE="$VITASDK/share/vita.toolchain.cmake" \
             -DCMAKE_BUILD_TYPE=Release \
             -DSRR2_REGION=${{ matrix.region }} \
+            -DSRR2_LOG=${{ (github.event_name == 'workflow_dispatch' && !inputs.log) && 'OFF' || 'ON' }} \
+            -DSRR2_VITA_HEAP_MB=${{ inputs.heap_mb || '304' }} \
             -DSRR2_BUILD_TESTS=OFF
 
       - name: Build
         run: cmake --build build --parallel "$(nproc)"
-
-      - name: Diagnose link failure
-        if: failure()
-        run: |
-          grep -n "mpg123" code/CMakeLists.txt || echo "mpg123 is NOT in code/CMakeLists.txt"
-          ls "$VITASDK/arm-vita-eabi/lib" | grep -E "mpg123|mp3lame" || true
-          cat build/code/CMakeFiles/SRR2.dir/link.txt || true
 
       - name: Locate VPK
         id: vpk
@@ -55,3 +59,12 @@ jobs:
           name: Simpsons-${{ matrix.region }}-vpk
           path: ${{ steps.vpk.outputs.path }}
           if-no-files-found: error
+
+      # The unstripped ELF is needed to symbolicate a Vita crash dump
+      - name: Upload ELF
+        uses: actions/upload-artifact@v4
+        with:
+          name: Simpsons-${{ matrix.region }}-elf
+          path: build/code/SRR2
+          retention-days: 7
+          if-no-files-found: warn

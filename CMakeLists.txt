@@ -14,6 +14,7 @@ option(SRR2_USE_BINK "Use RAD Game Tools Bink SDK instead of FFmpeg" OFF)
 option(SRR2_BUILD_TESTS "Build sample programs for internal libraries" ON)
 option(SRR2_MICROPROFILE "Use microprofile instead of the internal profiler" OFF)
 option(SRR2_P3D_CG "Use CG shaders rather than GLSL for OpenGL ES" OFF)
+option(SRR2_LOG "Enable release debug output and asserts output (written to ux0:data/simpsons/log.txt on the Vita)" OFF)
 set(SRR2_P3D_PDDI "OpenGL" CACHE STRING "Pure3D PDDI implementation")
 if(VITA)
 	option(SRR2_USE_VITAGL "Use VitaGL as an OpenGL (ES) implementation" ON)
@@ -34,8 +35,11 @@ if(VITA)
 	set(VITA_TITLEID  "ROADRAGE2")
 	# Optional version string to show in LiveArea's more info screen
 	set(VITA_VERSION ${SRR2_VERSION})
+	# Size of the newlib heap (backing malloc/new) in MB, see code/main/win32main.cpp
+	set(SRR2_VITA_HEAP_MB 304 CACHE STRING "Vita newlib heap size in MB")
+	add_definitions(-DRAD_VITA_HEAP_MB=${SRR2_VITA_HEAP_MB})
 	# Extended memory mode: raises the user memory budget of the app from 256 MB
-	# to 368 MB. The newlib heap size is configured in code/main/win32main.cpp
+	# to 368 MB
 	set(VITA_MKSFOEX_FLAGS "${VITA_MKSFOEX_FLAGS} -d ATTRIBUTE2=12")
 endif()
 
@@ -117,6 +121,9 @@ else()
 endif()
 if(SRR2_MICROPROFILE)
 	add_definitions(-DMICROPROFILE_ENABLED)
+endif()
+if(SRR2_LOG)
+	add_definitions(-DRAD_LOG)
 endif()
 if(SRR2_P3D_CG)
 	add_definitions(-DRAD_CG)

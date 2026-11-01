@@ -28,14 +28,18 @@
 #ifdef RAD_VITA
 #include <unistd.h>
 #include <psp2/kernel/clib.h>
+#include <psp2/kernel/sysmem.h>
 unsigned int sceLibcHeapSize = 16 * 1024 * 1024;
 
 // Size of the newlib heap backing malloc/new, read by vitasdk's sbrk at startup.
 // The app has 368 MB of user memory in extended memory mode (ATTRIBUTE2=12, see
-// CMakeLists.txt). The heap gets what is left after the other fixed user blocks:
-// 32 MB radMemorySpace user block, 16 MB sceLibc heap and ~16 MB for the
-// executable, thread stacks and system modules.
-unsigned int _newlib_heap_size_user = ( 368 - 32 - 16 - 16 ) * 1024 * 1024;
+// CMakeLists.txt). The heap gets what is left after the other fixed user blocks
+// (32 MB radMemorySpace user block, 16 MB sceLibc heap, executable, thread stacks,
+// system modules and vitaGL), so keep this well below 368 MB.
+#ifndef RAD_VITA_HEAP_MB
+#define RAD_VITA_HEAP_MB 304
+#endif
+unsigned int _newlib_heap_size_user = RAD_VITA_HEAP_MB * 1024 * 1024;
 #endif
 
 //========================================
@@ -56,15 +60,53 @@ static void ProcessCommandLineArguments( int argc, char *argv[] );
 
 static void ProcessCommandLineArgumentsFromFile();
 
+#if defined( RAD_VITA ) && defined( RAD_LOG )
+static FILE* s_pLogFile = NULL;
+#endif
+
 static void LogOutputFunction( void *userdata, int category, SDL_LogPriority priority, const char *message )
 {
 #ifdef RAD_VITA
     sceClibPrintf( "%s\n", message );
+#ifdef RAD_LOG
+    if( s_pLogFile != NULL )
+    {
+        fprintf( s_pLogFile, "%s\n", message );
+        fflush( s_pLogFile );
+    }
+#endif
 #else
     printf( "%s\n", message );
     fflush( stdout );
 #endif
 }
+
+//=============================================================================
+// Function:    LogProgress
+//=============================================================================
+//
+// Description: Logs a startup milestone (and the free memory on the Vita) so
+//              that the point where the game hangs or crashes can be found in
+//              the log. Does nothing unless built with SRR2_LOG.
+//
+//=============================================================================
+#ifdef RAD_LOG
+static void LogProgress( const char* stage )
+{
+    rReleasePrintf( "[boot] %s\n", stage );
+#ifdef RAD_VITA
+    SceKernelFreeMemorySizeInfo info;
+    info.size = sizeof( info );
+    if( sceKernelGetFreeMemorySize( &info ) >= 0 )
+    {
+        rReleasePrintf( "[mem] free user=%d KB cdram=%d KB phycont=%d KB\n",
+                        info.size_user / 1024, info.size_cdram / 1024, info.size_phycont / 1024 );
+    }
+#endif
+}
+#else
+#define LogProgress( stage ) ((void)0)
+#endif
 
 //=============================================================================
 // Function:    WinMain
@@ -88,7 +130,12 @@ extern "C" int main( int argc, char *argv[] )
 #endif
 #ifdef RAD_VITA
 	chdir( "ux0:data/simpsons" );
+#ifdef RAD_LOG
+    s_pLogFile = fopen( "ux0:data/simpsons/log.txt", "w" );
+    rReleasePrintf( "[boot] newlib heap requested: %d MB\n", RAD_VITA_HEAP_MB );
 #endif
+#endif
+    LogProgress( "start" );
 
     //
     // Pick out and store command line settings.
@@ -101,13 +148,17 @@ extern "C" int main( int argc, char *argv[] )
     // Initialize SDL subsystems
     //
 #if SDL_MAJOR_VERSION < 3
-    SDL_Init( SDL_INIT_EVENTS | SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER );
-
     SDL_LogSetOutputFunction( LogOutputFunction, NULL );
-#else
-    SDL_Init( SDL_INIT_EVENTS | SDL_INIT_VIDEO | SDL_INIT_GAMEPAD );
 
+    SDL_Init( SDL_INIT_EVENTS | SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER );
+#else
     SDL_SetLogOutputFunction( LogOutputFunction, NULL );
+
+    SDL_Init( SDL_INIT_EVENTS | SDL_INIT_VIDEO | SDL_INIT_GAMEPAD );
+#endif
+    LogProgress( "SDL initialized" );
+#ifdef RAD_LOG
+    rReleasePrintf( "[boot] SDL error string: [%s]\n", SDL_GetError() );
 #endif
 
     //
@@ -117,9 +168,12 @@ extern "C" int main( int argc, char *argv[] )
     //
     if( !Win32Platform::InitializeWindow() )
     {
+        LogProgress( "InitializeWindow failed" );
         return 0;
     }
+    LogProgress( "window initialized" );
     Win32Platform::InitializeFoundation();
+    LogProgress( "foundation initialized" );
 
     srand (Game::GetRandomSeed ());
 
@@ -139,12 +193,14 @@ extern "C" int main( int argc, char *argv[] )
     // Instantiate all the singletons before doing anything else.
     //
     CreateSingletons();
+    LogProgress( "singletons created" );
 
     //
     // Construct the platform object.
     //
     Win32Platform* pPlatform = Win32Platform::CreateInstance();
     rAssert( pPlatform != NULL );
+    LogProgress( "platform created" );
 
     //
     // Create the game object.
@@ -156,7 +212,9 @@ extern "C" int main( int argc, char *argv[] )
     //
     // Initialize the game.
     //
+    LogProgress( "game created, initializing" );
     pGame->Initialize();
+    LogProgress( "game initialized" );
 
     HeapMgr()->PopHeap (GMA_PERSISTENT);
 
@@ -164,6 +222,7 @@ extern "C" int main( int argc, char *argv[] )
     // Run it!  Control will not return from here until the game is stopped.
     //
     pGame->Run();
+    LogProgress( "game run finished" );
 
     //
     // Terminate the game (this frees all resources allocated by the game).
