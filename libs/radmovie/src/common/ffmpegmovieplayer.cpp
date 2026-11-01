@@ -60,13 +60,27 @@ unsigned int const radMovie_NoAudioTrack = 0xFFFFFFFF;
 
 #define RAD_MOVIE_PLAYER_VIDEO_LAG 10
 
-#define AV_CHK(x) if (int error = (x) < 0) { \
-        char str[AV_ERROR_MAX_STRING_SIZE]; \
-        av_strerror( error, str, AV_ERROR_MAX_STRING_SIZE ); \
-        rDebugPrintf( "%s at %s:%d\n", str, __FILE__, __LINE__ ); \
-        SetState( IRadMoviePlayer2::NoData ); \
-        return; \
-    };
+// Used while playing: report the error and stop the movie.
+#define AV_CHK(x) { \
+        int error = (x); \
+        if ( error < 0 ) { \
+            char str[AV_ERROR_MAX_STRING_SIZE] = ""; \
+            av_strerror( error, str, AV_ERROR_MAX_STRING_SIZE ); \
+            rDebugPrintf( "%s at %s:%d\n", str, __FILE__, __LINE__ ); \
+            SetState( IRadMoviePlayer2::NoData ); \
+            return; \
+        } \
+    }
+
+// Used inside Load(): report the error, release everything that was
+// allocated so far and leave the player in the NoData state.
+#define AV_LOAD_CHK(x) { \
+        int error = (x); \
+        if ( error < 0 ) { \
+            FailLoad( error, #x ); \
+            return; \
+        } \
+    }
 
 //=============================================================================
 // Static Members
@@ -198,15 +212,39 @@ void radMoviePlayer::Load( const char * pVideoFileName, unsigned int audioTrackI
     SetState( IRadMoviePlayer2::Loading );
 
     m_pFormatCtx = avformat_alloc_context();
-    AV_CHK( avformat_open_input( &m_pFormatCtx, pVideoFileName, NULL, NULL ) );
-    AV_CHK( avformat_find_stream_info( m_pFormatCtx, NULL ) );
+    AV_LOAD_CHK( avformat_open_input( &m_pFormatCtx, pVideoFileName, NULL, NULL ) );
+    AV_LOAD_CHK( avformat_find_stream_info( m_pFormatCtx, NULL ) );
 
     const AVCodec* pVideoCodec = NULL;
-    m_VideoTrackIndex = av_find_best_stream( m_pFormatCtx, AVMEDIA_TYPE_VIDEO, -1, -1, &pVideoCodec, 0 );
+    int videoIndex = av_find_best_stream( m_pFormatCtx, AVMEDIA_TYPE_VIDEO, -1, -1, &pVideoCodec, 0 );
+    if( videoIndex < 0 )
+    {
+        // Most likely AVERROR_DECODER_NOT_FOUND: the FFmpeg build has no
+        // decoder for the video stream (e.g. Theora in the .rmv files).
+        // Say which codec is missing, then bail out instead of indexing
+        // streams[] with a negative error code.
+        for( unsigned int i = 0; i < m_pFormatCtx->nb_streams; ++i )
+        {
+            const AVCodecParameters* p = m_pFormatCtx->streams[i]->codecpar;
+            if( p->codec_type == AVMEDIA_TYPE_VIDEO )
+            {
+                rDebugPrintf( "radMoviePlayer: video stream %u uses codec '%s' (id %d)\n",
+                    i, avcodec_get_name( p->codec_id ), (int)p->codec_id );
+            }
+        }
+        FailLoad( videoIndex, "av_find_best_stream( video )" );
+        return;
+    }
+    m_VideoTrackIndex = videoIndex;
     AVCodecParameters* pVideoParams = m_pFormatCtx->streams[m_VideoTrackIndex]->codecpar;
     m_pVideoCtx = avcodec_alloc_context3( pVideoCodec );
-    AV_CHK( avcodec_parameters_to_context( m_pVideoCtx, pVideoParams ) );
-    AV_CHK( avcodec_open2( m_pVideoCtx, pVideoCodec, NULL ) );
+    if( m_pVideoCtx == NULL )
+    {
+        FailLoad( AVERROR( ENOMEM ), "avcodec_alloc_context3( video )" );
+        return;
+    }
+    AV_LOAD_CHK( avcodec_parameters_to_context( m_pVideoCtx, pVideoParams ) );
+    AV_LOAD_CHK( avcodec_open2( m_pVideoCtx, pVideoCodec, NULL ) );
 
 #ifndef RAD_VITAGL
     m_pSwsCtx = sws_getContext(
@@ -223,23 +261,39 @@ void radMoviePlayer::Load( const char * pVideoFileName, unsigned int audioTrackI
     if( audioTrackIndex != radMovie_NoAudioTrack )
     {
         const AVCodec* pAudioCodec = NULL;
-        m_AudioTrackIndex = av_find_best_stream( m_pFormatCtx, AVMEDIA_TYPE_AUDIO, audioTrackIndex + 1, -1, &pAudioCodec, 0 );
-        AVCodecParameters* pAudioParams = m_pFormatCtx->streams[m_AudioTrackIndex]->codecpar;
-        m_pAudioCtx = avcodec_alloc_context3( pAudioCodec );
-        AV_CHK( avcodec_parameters_to_context( m_pAudioCtx, pAudioParams ) );
-        AV_CHK( avcodec_open2( m_pAudioCtx, pAudioCodec, NULL ) );
+        int audioIndex = av_find_best_stream( m_pFormatCtx, AVMEDIA_TYPE_AUDIO, audioTrackIndex + 1, -1, &pAudioCodec, 0 );
+        if( audioIndex < 0 )
+        {
+            // No usable audio track (missing or no decoder): play the video silently.
+            rDebugPrintf( "radMoviePlayer: no usable audio track %u (error %d), playing without sound\n",
+                audioTrackIndex, audioIndex );
+            m_AudioTrackIndex = 0;
+        }
+        else
+        {
+            m_AudioTrackIndex = audioIndex;
+            AVCodecParameters* pAudioParams = m_pFormatCtx->streams[m_AudioTrackIndex]->codecpar;
+            m_pAudioCtx = avcodec_alloc_context3( pAudioCodec );
+            if( m_pAudioCtx == NULL )
+            {
+                FailLoad( AVERROR( ENOMEM ), "avcodec_alloc_context3( audio )" );
+                return;
+            }
+            AV_LOAD_CHK( avcodec_parameters_to_context( m_pAudioCtx, pAudioParams ) );
+            AV_LOAD_CHK( avcodec_open2( m_pAudioCtx, pAudioCodec, NULL ) );
 
-        AVChannelLayout layout = { AV_CHANNEL_ORDER_NATIVE, 2, AV_CH_LAYOUT_STEREO };
-        AV_CHK( swr_alloc_set_opts2( &m_pSwrCtx,
-            &layout,
-            AV_SAMPLE_FMT_S16,
-            pAudioParams->sample_rate,
-            &pAudioParams->ch_layout,
-            (AVSampleFormat)pAudioParams->format,
-            pAudioParams->sample_rate,
-            0,
-            NULL ) );
-        swr_init( m_pSwrCtx );
+            AVChannelLayout layout = { AV_CHANNEL_ORDER_NATIVE, 2, AV_CH_LAYOUT_STEREO };
+            AV_LOAD_CHK( swr_alloc_set_opts2( &m_pSwrCtx,
+                &layout,
+                AV_SAMPLE_FMT_S16,
+                pAudioParams->sample_rate,
+                &pAudioParams->ch_layout,
+                (AVSampleFormat)pAudioParams->format,
+                pAudioParams->sample_rate,
+                0,
+                NULL ) );
+            AV_LOAD_CHK( swr_init( m_pSwrCtx ) );
+        }
     }
     else
     {
@@ -275,6 +329,39 @@ void radMoviePlayer::Load( const char * pVideoFileName, unsigned int audioTrackI
     SetState( IRadMoviePlayer2::ReadyToPlay );
 
     Service( );
+}
+
+//=============================================================================
+// radMoviePlayer::FailLoad
+//
+// Called when Load() cannot set the movie up. Logs the error, frees whatever
+// was allocated so far and leaves the player in the NoData state, which the
+// FMV player treats as "nothing to play" (the movie is simply skipped).
+//=============================================================================
+
+void radMoviePlayer::FailLoad( int error, const char * what )
+{
+    char str[AV_ERROR_MAX_STRING_SIZE] = "";
+    av_strerror( error, str, AV_ERROR_MAX_STRING_SIZE );
+    rDebugPrintf( "radMoviePlayer: Load failed in %s: %s (%d)\n", what, str, error );
+
+#ifndef RAD_VITAGL
+    sws_freeContext( m_pSwsCtx );
+    m_pSwsCtx = NULL;
+#endif
+    swr_free( &m_pSwrCtx );
+    av_packet_free( &m_pPacket );
+    av_frame_free( &m_pVideoFrame );
+    av_frame_free( &m_pAudioFrame );
+    avcodec_free_context( &m_pVideoCtx );
+    avcodec_free_context( &m_pAudioCtx );
+    avformat_close_input( &m_pFormatCtx );   // also frees the context if open_input failed
+
+    m_refIRadStopwatch->Stop( );
+    m_refIRadStopwatch->Reset( );
+
+    m_VideoFrameState = VideoFrame_Unlocked;
+    SetState( IRadMoviePlayer2::NoData );
 }
 
 //=============================================================================

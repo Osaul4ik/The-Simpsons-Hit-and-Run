@@ -33,11 +33,25 @@ jobs:
       - name: Prepare art directory
         run: mkdir -p art
 
+      # The FFmpeg from vitasdk/vdpm has no Theora decoder, so the .rmv movies
+      # cannot be played with it. Build our own (cached between runs).
+      - name: Cache FFmpeg (Theora)
+        id: ffmpeg-cache
+        uses: actions/cache@v4
+        with:
+          path: ffmpeg-vita
+          key: ffmpeg-vita-${{ hashFiles('scripts/build-ffmpeg-vita.sh') }}
+
+      - name: Build FFmpeg with Theora
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        run: ./scripts/build-ffmpeg-vita.sh "$GITHUB_WORKSPACE/ffmpeg-vita"
+
       - name: Configure
         run: |
           cmake -S . -B build \
             -DCMAKE_TOOLCHAIN_FILE="$VITASDK/share/vita.toolchain.cmake" \
             -DCMAKE_BUILD_TYPE=Release \
+            -DSRR2_FFMPEG_PREFIX="$GITHUB_WORKSPACE/ffmpeg-vita" \
             -DSRR2_REGION=${{ matrix.region }} \
             -DSRR2_LOG=${{ (github.event_name == 'workflow_dispatch' && !inputs.log) && 'OFF' || 'ON' }} \
             -DSRR2_VITA_HEAP_MB=${{ inputs.heap_mb || '192' }} \

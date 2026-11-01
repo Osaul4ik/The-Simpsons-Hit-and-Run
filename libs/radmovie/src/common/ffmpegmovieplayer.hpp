@@ -107,6 +107,7 @@ class radMoviePlayer
         void SetState( IRadMoviePlayer2::State state );
         void InternalPlay( void );
         void FlushAudioQueue( void );
+        void FailLoad( int error, const char * what );
 
         ref< IRadMovieRenderStrategy > m_refIRadMovieRenderStrategy;
         ref< IRadMovieRenderLoop > m_refIRadMovieRenderLoop;
@@ -117,8 +118,9 @@ class radMoviePlayer
         enum VideoFrameState { VideoFrame_Unlocked, VideoFrame_Locked };
         VideoFrameState m_VideoFrameState;
 
-        unsigned int m_VideoTrackIndex;
-        unsigned int m_AudioTrackIndex;
+        // Signed: av_find_best_stream() returns negative AVERROR codes
+        int m_VideoTrackIndex;
+        int m_AudioTrackIndex;
         unsigned int m_PresentationTime;
         unsigned int m_PresentationDuration;
 

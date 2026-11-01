@@ -11,6 +11,7 @@ set_property(CACHE SRR2_REGION PROPERTY STRINGS "NTSC" "PAL")
 option(SRR2_USE_DLMALLOC "Use Doug Lea's memory allocator for fixed-size heaps" OFF)
 option(SRR2_REROUTE_ALL_HEAP_ALLOCATIONS "Reroute all memory allocations by new operator to internal heaps" OFF)
 option(SRR2_USE_BINK "Use RAD Game Tools Bink SDK instead of FFmpeg" OFF)
+set(SRR2_FFMPEG_PREFIX "" CACHE PATH "Install prefix of a custom FFmpeg build to use instead of the system/vitasdk one")
 option(SRR2_BUILD_TESTS "Build sample programs for internal libraries" ON)
 option(SRR2_MICROPROFILE "Use microprofile instead of the internal profiler" OFF)
 option(SRR2_P3D_CG "Use CG shaders rather than GLSL for OpenGL ES" OFF)
@@ -105,6 +106,15 @@ if(SRR2_USE_BINK)
 	add_definitions(-DRAD_MOVIEPLAYER_USE_BINK)
 else()
 	find_package(PkgConfig REQUIRED)
+	if(SRR2_FFMPEG_PREFIX)
+		# Custom FFmpeg build (on the Vita: scripts/build-ffmpeg-vita.sh). Needed
+		# because the vdpm FFmpeg has no Theora decoder, which the .rmv movies use.
+		set(ENV{PKG_CONFIG_PATH} "${SRR2_FFMPEG_PREFIX}/lib/pkgconfig:$ENV{PKG_CONFIG_PATH}")
+	elseif(VITA)
+		message(WARNING "SRR2_FFMPEG_PREFIX is not set: the stock vitasdk FFmpeg cannot decode "
+			"the Theora .rmv movies, so they will be skipped. "
+			"Run scripts/build-ffmpeg-vita.sh and pass -DSRR2_FFMPEG_PREFIX=<prefix>.")
+	endif()
 	pkg_check_modules(FFmpeg REQUIRED IMPORTED_TARGET
 			libavformat
 			libavcodec

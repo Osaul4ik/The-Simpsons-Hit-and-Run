@@ -1,6 +1,7 @@
 .vs/
 out/
 build/
+ffmpeg-vita/
 switch/
 romfs/
 module/
