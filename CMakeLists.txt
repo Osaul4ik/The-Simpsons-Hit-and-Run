@@ -36,7 +36,7 @@ if(VITA)
 	# Optional version string to show in LiveArea's more info screen
 	set(VITA_VERSION ${SRR2_VERSION})
 	# Size of the newlib heap (backing malloc/new) in MB, see code/main/win32main.cpp
-	set(SRR2_VITA_HEAP_MB 304 CACHE STRING "Vita newlib heap size in MB")
+	set(SRR2_VITA_HEAP_MB 192 CACHE STRING "Vita newlib heap size in MB")
 	add_definitions(-DRAD_VITA_HEAP_MB=${SRR2_VITA_HEAP_MB})
 	# Extended memory mode: raises the user memory budget of the app from 256 MB
 	# to 368 MB

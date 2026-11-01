@@ -28,9 +28,11 @@
 
 #include "memoryspacewin32.hpp"
 
-#define USER_SIZE_IN_BYTES ( 1024 * 1024 * 32 )
+// Nothing allocates from radMemorySpace_User/Cdram, and vitaGL needs this RAM/CDRAM,
+// so keep these blocks tiny on the Vita.
+#define USER_SIZE_IN_BYTES ( 1024 * 1024 * 1 )
 #define MAX_USER_ALLOCATIONS 100
-#define CDRAM_SIZE_IN_BYTES ( 1024 * 1024 * 64 )
+#define CDRAM_SIZE_IN_BYTES ( 1024 * 1024 * 1 )
 #define MAX_CDRAM_ALLOCATIONS 100
 
 //============================================================================
@@ -271,7 +273,3 @@ void radMemorySpaceFreeAligned
 #endif
 	::radMemoryFreeAligned( allocator, pMemory );
 }
-
-
-
-

@@ -35,9 +35,11 @@ unsigned int sceLibcHeapSize = 16 * 1024 * 1024;
 // The app has 368 MB of user memory in extended memory mode (ATTRIBUTE2=12, see
 // CMakeLists.txt). The heap gets what is left after the other fixed user blocks
 // (32 MB radMemorySpace user block, 16 MB sceLibc heap, executable, thread stacks,
-// system modules and vitaGL), so keep this well below 368 MB.
+// system modules and vitaGL), so keep this well below 368 MB. vitaGL takes all
+// the remaining user RAM (minus its 16 MB threshold) for its texture pool when
+// vglInit() runs, so leave at least ~100 MB free here or the screen stays black.
 #ifndef RAD_VITA_HEAP_MB
-#define RAD_VITA_HEAP_MB 304
+#define RAD_VITA_HEAP_MB 192
 #endif
 unsigned int _newlib_heap_size_user = RAD_VITA_HEAP_MB * 1024 * 1024;
 #endif
