@@ -10,10 +10,10 @@ on:
         description: Region to build
         type: choice
         options:
-          - both
           - NTSC
           - PAL
-        default: both
+          - both
+        default: NTSC
       log:
         description: Write debug output to ux0:data/simpsons/log.txt
         type: boolean
@@ -33,7 +33,7 @@ jobs:
       - name: Pick regions
         id: pick
         run: |
-          case "${{ inputs.region || 'both' }}" in
+          case "${{ inputs.region || 'NTSC' }}" in
             NTSC) list='["NTSC"]' ;;
             PAL)  list='["PAL"]' ;;
             *)    list='["NTSC","PAL"]' ;;
