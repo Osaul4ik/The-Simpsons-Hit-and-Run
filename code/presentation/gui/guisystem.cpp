@@ -205,7 +205,9 @@ unsigned int g_scroobySimulationTime = 0;
 
 #ifdef RAD_VITA
 
-#define PROJECT_DRIVE_SPEC "APP0:\\"
+// Frontend UI files are read from ux0:data/simpsons (the current directory), like
+// the rest of the game data, so the VPK does not need to contain the art folder.
+#define PROJECT_DRIVE_SPEC
 
 #elif defined __SWITCH__
 

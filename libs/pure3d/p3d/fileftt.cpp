@@ -111,7 +111,7 @@ void tFileFTT::SetPosition(int offset)
 void tFileFTT::Advance(unsigned offset)
 {
     OpenFile();
-    if ( offset == 0 )
+    if ( offset == 0 || fileSize <= 0 )
     {
         return;
     }
@@ -184,6 +184,14 @@ bool tFileFTT::GetData(void* buf, unsigned count, DataType type)
      if ( numBytes == 0 )
      {
           return true;
+     }
+
+     // File failed to open or is empty: return zeroes instead of walking
+     // off the end of the cache
+     if ( fileSize <= 0 )
+     {
+          memset( buf, 0, numBytes );
+          return false;
      }
 
      if(currentPos + numBytes <= currentSize)
@@ -497,7 +505,25 @@ void tFileFTT::OpenFile( void )
 
         WaitForCompletion( );
         P3DASSERT( m_pIRadFile->IsOpen( ));
-     
+
+        // The file could not be opened (e.g. missing, or SCE error code such as
+        // 0x80010009 returned as its size). Behave like an empty file instead of
+        // reading garbage and crashing in memcpy.
+        if( !m_pIRadFile->IsOpen( ) || (int)m_pIRadFile->GetSize( ) < 0 )
+        {
+            rReleasePrintf( "P3D: failed to open file %s\n", this->GetFullFilename() );
+            fileSize = 0;
+            bufferSize = 0;
+            cache[0] = (char*) ::radMemoryRoundUp( (uintptr_t)globalCache, 0x80);
+            cache[1] = cache[0] + CACHE_SIZE;
+            currentCache = 0;
+            currentBuffer = cache[0];
+            currentPos = 0;
+            currentSize = 0;
+            nextSize = 0;
+            return;
+        }
+
         fileSize = m_pIRadFile->GetSize( );
 
         // Align to a 128 byte boundary for improved PS2 performance.
@@ -530,4 +556,3 @@ void tFileFTT::OpenFile( void )
         WaitForCompletion();
     }
 }
-
