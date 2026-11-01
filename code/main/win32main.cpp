@@ -29,6 +29,13 @@
 #include <unistd.h>
 #include <psp2/kernel/clib.h>
 unsigned int sceLibcHeapSize = 16 * 1024 * 1024;
+
+// Size of the newlib heap backing malloc/new, read by vitasdk's sbrk at startup.
+// The app has 368 MB of user memory in extended memory mode (ATTRIBUTE2=12, see
+// CMakeLists.txt). The heap gets what is left after the other fixed user blocks:
+// 32 MB radMemorySpace user block, 16 MB sceLibc heap and ~16 MB for the
+// executable, thread stacks and system modules.
+unsigned int _newlib_heap_size_user = ( 368 - 32 - 16 - 16 ) * 1024 * 1024;
 #endif
 
 //========================================

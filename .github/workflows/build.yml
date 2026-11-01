@@ -1,0 +1,71 @@
+name: Build VPK
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build VPK (${{ matrix.region }})
+    runs-on: ubuntu-latest
+    container: vitasdk/vitasdk:latest
+    strategy:
+      fail-fast: false
+      matrix:
+        region: [ NTSC, PAL ]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # The art folder is ignored by git (game data) but vita_create_vpk
+      # requires it to exist, since it is packed into the VPK.
+      - name: Prepare art directory
+        run: mkdir -p art
+
+      - name: Configure
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_TOOLCHAIN_FILE="$VITASDK/share/vita.toolchain.cmake" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DSRR2_REGION=${{ matrix.region }} \
+            -DSRR2_BUILD_TESTS=OFF
+
+      - name: Build
+        run: cmake --build build --parallel "$(nproc)"
+
+      - name: Locate VPK
+        id: vpk
+        run: |
+          VPK="$(find build -maxdepth 1 -name '*.vpk' | head -n 1)"
+          test -n "$VPK"
+          echo "path=$VPK" >> "$GITHUB_OUTPUT"
+
+      - name: Upload VPK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Simpsons-${{ matrix.region }}-vpk
+          path: ${{ steps.vpk.outputs.path }}
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download VPKs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: Simpsons-*-vpk
+          path: dist
+          merge-multiple: true
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.vpk

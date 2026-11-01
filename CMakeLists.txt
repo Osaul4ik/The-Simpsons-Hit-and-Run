@@ -34,6 +34,9 @@ if(VITA)
 	set(VITA_TITLEID  "ROADRAGE2")
 	# Optional version string to show in LiveArea's more info screen
 	set(VITA_VERSION ${SRR2_VERSION})
+	# Extended memory mode: raises the user memory budget of the app from 256 MB
+	# to 368 MB. The newlib heap size is configured in code/main/win32main.cpp
+	set(VITA_MKSFOEX_FLAGS "${VITA_MKSFOEX_FLAGS} -d ATTRIBUTE2=12")
 endif()
 
 find_program(CCACHE_FOUND ccache)
