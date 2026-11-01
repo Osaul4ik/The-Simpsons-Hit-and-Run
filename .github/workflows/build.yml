@@ -44,7 +44,7 @@ jobs:
 
       - name: Build FFmpeg with Theora
         if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
-        run: ./scripts/build-ffmpeg-vita.sh "$GITHUB_WORKSPACE/ffmpeg-vita"
+        run: bash scripts/build-ffmpeg-vita.sh "$GITHUB_WORKSPACE/ffmpeg-vita"
 
       - name: Configure
         run: |
