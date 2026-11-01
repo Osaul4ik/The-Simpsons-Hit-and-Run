@@ -133,7 +133,7 @@ else()
 		endforeach()
 		set_property(TARGET PkgConfig::FFmpeg PROPERTY INTERFACE_INCLUDE_DIRECTORIES "${SRR2_FFMPEG_PREFIX}/include")
 		set_property(TARGET PkgConfig::FFmpeg PROPERTY INTERFACE_LINK_LIBRARIES
-			"${_ffl}/libavformat.a;${_ffl}/libavcodec.a;${_ffl}/libswresample.a;${_ffl}/libswscale.a;${_ffl}/libavutil.a;m;pthread")
+			"${_ffl}/libavformat.a;${_ffl}/libavcodec.a;${_ffl}/libswresample.a;${_ffl}/libswscale.a;${_ffl}/libavutil.a")
 	endif()
 	if(VITA)
 		# libmp3lame.a (pulled in by FFmpeg) needs mpg123, but its pkg-config file
