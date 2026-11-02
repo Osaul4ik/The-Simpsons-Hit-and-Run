@@ -65,7 +65,7 @@
 #ifdef RAD_VITA
 #ifdef RAD_GXM
 // Defined in libs/pure3d/pddi/gxm/display.cpp. Weak so radcore still links when pure3d
-// is not part of the link (tools, tests).
+// is not part of the link.
 extern "C" bool radGxmEarlyInit( void ) __attribute__((weak));
 #endif
 SceUID g_User_UID, g_Cdram_UID;

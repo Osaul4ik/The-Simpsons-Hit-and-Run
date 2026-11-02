@@ -1,13 +1,3 @@
-// The driver is normally already up (radMemorySpaceInitialize calls radGxmEarlyInit
-    // before reserving the game heaps); this is a no-op in that case.
-    if(!InitializeDriver())
-    {
-#ifdef RAD_LOG
-        rReleasePrintf("[gxm] sceGxmInitialize failed, cannot create display\n");
-#endif
-        return false;
-    }
-
 //=============================================================================
 // Copyright (c) 2002 Radical Games Ltd.  All rights reserved.
 //=============================================================================
@@ -44,7 +34,6 @@
 #include <psp2/razor_capture.h>
 #endif
 
-
 // ---------------------------------------------------------------------------
 // GXM driver initialisation
 //
@@ -52,8 +41,8 @@
 // system pools. radMemorySpaceInitialize() grabs nearly all user RAM and CDRAM for the
 // game heaps, so if GXM is initialised afterwards it fails with
 // SCE_GXM_ERROR_OUT_OF_MEMORY (0x805B0002). radMemorySpaceInitialize() therefore calls
-// radGxmEarlyInit() first (same order vitaGL uses), and gxmDisplay::InitDisplay() calls
-// it again as a no-op safety net.
+// radGxmEarlyInit() first (same order vitaGL uses); InitDisplay() calls it again as a
+// no-op safety net.
 // ---------------------------------------------------------------------------
 static bool s_gxmInitialized = false;
 
@@ -62,8 +51,8 @@ bool gxmDisplay::InitializeDriver(void)
     if(s_gxmInitialized)
         return true;
 
-    // Try the default parameter buffer first, then progressively smaller ones so that
-    // a tight memory layout degrades gracefully instead of failing at boot.
+    // Default parameter buffer first, then smaller ones, so that a tight memory layout
+    // degrades gracefully instead of failing at boot.
     static const uint32_t sizes[] = {
         SCE_GXM_DEFAULT_PARAMETER_BUFFER_SIZE,
         8u * 1024 * 1024,
@@ -243,16 +232,15 @@ bool gxmDisplay::InitDisplay(const pddiDisplayInit* init)
     rReleasePrintf("[gxm] InitDisplay %dx%d msaa=%d\n", (int)winWidth, (int)winHeight, (int)msaaMode);
 #endif
 
-    // set up parameters and initialize
-    SceGxmInitializeParams initializeParams;
-    memset(&initializeParams, 0, sizeof(SceGxmInitializeParams));
-    initializeParams.flags = 0;
-    initializeParams.displayQueueMaxPendingCount = GetNumColourBuffer() - 1;
-    initializeParams.displayQueueCallback = displayCallback;
-    initializeParams.displayQueueCallbackDataSize = sizeof(DisplayData);
-    initializeParams.parameterBufferSize = SCE_GXM_DEFAULT_PARAMETER_BUFFER_SIZE;
-    if(!CHK_GXM(sceGxmInitialize(&initializeParams)))
+    // The driver is normally already up (radMemorySpaceInitialize calls radGxmEarlyInit
+    // before reserving the game heaps); this is a no-op in that case.
+    if(!InitializeDriver())
+    {
+#ifdef RAD_LOG
+        rReleasePrintf("[gxm] sceGxmInitialize failed, cannot create display\n");
+#endif
         return false;
+    }
 
     // map external memory heaps
     IRadMemoryHeap* userHeap = (IRadMemoryHeap*)radMemorySpaceGetAllocator(radMemorySpace_User, radMemoryGetCurrentAllocator());
