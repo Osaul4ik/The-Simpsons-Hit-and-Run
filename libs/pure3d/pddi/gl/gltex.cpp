@@ -10,6 +10,7 @@
 #include <math.h>
 #include <pddi/base/debug.hpp>
 #include <radmemory.hpp>
+#include <raddebug.hpp>
 
 #include <microprofile.h>
 
@@ -195,6 +196,23 @@ void pglTexture::SetGLState(void)
             }
         }
         */
+
+#if defined( RAD_VITAGL ) && defined( RAD_LOG )
+        {
+            // Texture upload diagnostics for log.txt: the first uploads are always
+            // logged, later ones only when GL reports an error.
+            static unsigned s_uploadCount = 0;
+            const GLenum glErr = glGetError();
+            if( glErr != GL_NO_ERROR || s_uploadCount < 600 )
+            {
+                rReleasePrintf( "[tex] #%u %dx%d type=%d fmt=%d depth=%d mips=%d gl_err=0x%x vram=%uKB ram=%uKB\n",
+                    s_uploadCount, xSize, ySize, (int)type, (int)lock.format, (int)lock.depth, nMipMap,
+                    (unsigned)glErr, (unsigned)( vglMemFree( VGL_MEM_VRAM ) / 1024 ),
+                    (unsigned)( vglMemFree( VGL_MEM_RAM ) / 1024 ) );
+            }
+            ++s_uploadCount;
+        }
+#endif
 
         valid = true;
     }
