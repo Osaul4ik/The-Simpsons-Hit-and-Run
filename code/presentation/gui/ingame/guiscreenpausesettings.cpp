@@ -36,14 +36,6 @@
 #include <Text.h>
 #include <strings/unicodeString.h>
 
-// The Vita build ships the PC version of ingame.p3d: its PauseSettings page has no
-// InvertCamControl / Vibration groups (GetGroup() returned NULL -> crash in this
-// constructor). RAD_PC is not defined for the Vita build (it would also change the
-// input headers), so use a file-local switch with the PC item list instead.
-#if defined( RAD_PC ) || defined( RAD_VITA )
-#define SRR2_PC_PAUSE_SETTINGS 1
-#endif
-
 //===========================================================================
 // Global Data, Local Data, Local Classes
 //===========================================================================
@@ -52,12 +44,12 @@ enum ePauseSettingsMenuItem
 {
     MENU_ITEM_CAMERA,
     MENU_ITEM_JUMP_CAMERAS,
-#ifndef SRR2_PC_PAUSE_SETTINGS
+#ifndef RAD_PC
     MENU_ITEM_INVERT_CAM_CONTROL,
 #endif
     MENU_ITEM_INTERSECT_NAV_SYSTEM,
     MENU_ITEM_RADAR,
-#ifndef SRR2_PC_PAUSE_SETTINGS
+#ifndef RAD_PC
     MENU_ITEM_VIBRATION,
 #endif
     MENU_ITEM_TUTORIAL,
@@ -70,12 +62,12 @@ const char* PAUSE_SETTINGS_MENU_ITEMS[] =
 {
     "Camera",
     "JumpCamera",
-#ifndef SRR2_PC_PAUSE_SETTINGS
+#ifndef RAD_PC
     "InvertCamControl",
 #endif
     "IntersectNavSystem",
     "Radar",
-#ifndef SRR2_PC_PAUSE_SETTINGS
+#ifndef RAD_PC
     "Vibration",
 #endif
     "Tutorial",
@@ -83,7 +75,7 @@ const char* PAUSE_SETTINGS_MENU_ITEMS[] =
     ""
 };
 
-#ifdef SRR2_PC_PAUSE_SETTINGS
+#ifdef RAD_PC
 SuperCam::Type PC_CAMERAS_FOR_WALKING[] =
 {
     SuperCam::WALKER_CAM,
@@ -179,7 +171,7 @@ MEMTRACK_PUSH_GROUP( "CGuiScreenPauseSettings" );
     }
 
     m_cameraSelections[ CAMERA_SELECTION_FOR_DRIVING ] = CAMERAS_FOR_DRIVING;
-#ifdef SRR2_PC_PAUSE_SETTINGS
+#ifdef RAD_PC
     m_cameraSelections[ CAMERA_SELECTION_FOR_WALKING ] = PC_CAMERAS_FOR_WALKING;
 #else
     m_cameraSelections[ CAMERA_SELECTION_FOR_WALKING ] = CAMERAS_FOR_WALKING;
@@ -189,7 +181,7 @@ MEMTRACK_PUSH_GROUP( "CGuiScreenPauseSettings" );
     {
         m_numCameraSelections[ CAMERA_SELECTION_FOR_DRIVING ] = NUM_CAMERAS_FOR_DRIVING;
 
-#ifdef SRR2_PC_PAUSE_SETTINGS
+#ifdef RAD_PC
         m_numCameraSelections[ CAMERA_SELECTION_FOR_WALKING ] = NUM_PC_CAMERAS_FOR_WALKING;
 #else
         m_numCameraSelections[ CAMERA_SELECTION_FOR_WALKING ] = NUM_CAMERAS_FOR_WALKING;
@@ -198,7 +190,7 @@ MEMTRACK_PUSH_GROUP( "CGuiScreenPauseSettings" );
     else
     {
         m_numCameraSelections[ CAMERA_SELECTION_FOR_DRIVING ] = NUM_CAMERAS_FOR_DRIVING_WITHOUT_CHEAT;
-#ifdef SRR2_PC_PAUSE_SETTINGS
+#ifdef RAD_PC
         m_numCameraSelections[ CAMERA_SELECTION_FOR_WALKING ] = NUM_PC_CAMERAS_FOR_WALKING_WITHOUT_CHEAT;
 #else
         m_numCameraSelections[ CAMERA_SELECTION_FOR_WALKING ] = NUM_CAMERAS_FOR_WALKING_WITHOUT_CHEAT;
@@ -279,7 +271,7 @@ void CGuiScreenPauseSettings::HandleMessage
                     //
                     GetSuperCamManager()->GetSCC( 0 )->Update( 0 );
                 }
-#ifndef SRR2_PC_PAUSE_SETTINGS
+#ifndef RAD_PC
                 else if( param1 == MENU_ITEM_VIBRATION )
                 {
                     if( param2 == 1 ) // vibration turned ON
@@ -373,7 +365,7 @@ void CGuiScreenPauseSettings::InitIntro()
     //
     bool isSettingOn = false;
 
-#ifndef SRR2_PC_PAUSE_SETTINGS
+#ifndef RAD_PC
     isSettingOn = GetSuperCamManager()->GetSCC( 0 )->IsInvertedCameraEnabled();
     m_pMenu->SetSelectionValue( MENU_ITEM_INVERT_CAM_CONTROL,
                                 isSettingOn ? 1 : 0 );
@@ -390,7 +382,7 @@ void CGuiScreenPauseSettings::InitIntro()
     isSettingOn = GetGuiSystem()->IsRadarEnabled();
     m_pMenu->SetSelectionValue( MENU_ITEM_RADAR,
                                 isSettingOn ? 1 : 0 );
-#ifndef SRR2_PC_PAUSE_SETTINGS
+#ifndef RAD_PC
     isSettingOn = GetInputManager()->IsRumbleEnabled();
     m_pMenu->SetSelectionValue( MENU_ITEM_VIBRATION,
                                 isSettingOn ? 1 : 0 );
@@ -453,7 +445,7 @@ void CGuiScreenPauseSettings::InitOutro()
     rAssert( m_pMenu != NULL );
     bool isSettingOn = false;
 
-#ifndef SRR2_PC_PAUSE_SETTINGS
+#ifndef RAD_PC
     isSettingOn = (m_pMenu->GetSelectionValue( MENU_ITEM_INVERT_CAM_CONTROL ) == 1);
     GetSuperCamManager()->GetSCC( 0 )->EnableInvertedCamera( isSettingOn );
 #endif
@@ -467,13 +459,13 @@ void CGuiScreenPauseSettings::InitOutro()
     isSettingOn = (m_pMenu->GetSelectionValue( MENU_ITEM_RADAR ) == 1);
     GetGuiSystem()->SetRadarEnabled( isSettingOn );
 
-#ifndef SRR2_PC_PAUSE_SETTINGS
+#ifndef RAD_PC
     isSettingOn = (m_pMenu->GetSelectionValue( MENU_ITEM_VIBRATION ) == 1);
     GetInputManager()->SetRumbleEnabled( isSettingOn );
 #endif
 
     isSettingOn = (m_pMenu->GetSelectionValue( MENU_ITEM_TUTORIAL ) == 1) 
-#ifdef SRR2_PC_PAUSE_SETTINGS
+#ifdef RAD_PC
                   && !(GetInputManager()->GetController(0)->IsTutorialDisabled())
 #endif                  
                   ;
