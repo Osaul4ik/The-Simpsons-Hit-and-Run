@@ -11,13 +11,21 @@
 #include <stdio.h>
 #include <string.h>
 
+#ifdef RAD_VITA
+// Bigger read-ahead: with 192 KB the loader ran dry on every zone and handed whole
+// frames back to the main thread ("Starved for N frames").
+static const int CACHE_SIZE = 1024 * 1024;
+#else
 static const int CACHE_SIZE = 192 * 1024;
+#endif
 static const int CYCLE_SIZE = 8192;
 static const int COMPRESSED_BLOCK_SIZE = 4096;
 
 static radTime64 gLastTime = 0;
 #ifdef RAD_XBOX
 static const unsigned gYieldTime = 2500;  // microseconds
+#elif defined(RAD_VITA)
+static const unsigned gYieldTime = 8500;  // microseconds
 #else
 static const unsigned gYieldTime = 5200;  // microseconds
 #endif

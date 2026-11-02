@@ -135,6 +135,9 @@ gxmDisplay::~gxmDisplay()
     CHK_GXM(sceGxmUnmapMemory(userHeap->GetStartOfMemory()));
     IRadMemoryHeap* cdramHeap = (IRadMemoryHeap*)radMemorySpaceGetAllocator(radMemorySpace_Cdram, radMemoryGetCurrentAllocator());
     CHK_GXM(sceGxmUnmapMemory(cdramHeap->GetStartOfMemory()));
+    IRadMemoryHeap* phycontHeap = (IRadMemoryHeap*)radMemorySpaceGetAllocator(radMemorySpace_Phycont, radMemoryGetCurrentAllocator());
+    if(phycontHeap)
+        CHK_GXM(sceGxmUnmapMemory(phycontHeap->GetStartOfMemory()));
 
     /* release and free the device context and rendering context */
     sceGxmDestroyContext(gxm);
@@ -264,6 +267,9 @@ bool gxmDisplay::InitDisplay(const pddiDisplayInit* init)
     CHK_GXM(sceGxmMapMemory(userHeap->GetStartOfMemory(), userHeap->GetSize(), SCE_GXM_MEMORY_ATTRIB_READ));
     IRadMemoryHeap* cdramHeap = (IRadMemoryHeap*)radMemorySpaceGetAllocator(radMemorySpace_Cdram, radMemoryGetCurrentAllocator());
     CHK_GXM(sceGxmMapMemory(cdramHeap->GetStartOfMemory(), cdramHeap->GetSize(), SCE_GXM_MEMORY_ATTRIB_RW));
+    IRadMemoryHeap* phycontHeap = (IRadMemoryHeap*)radMemorySpaceGetAllocator(radMemorySpace_Phycont, radMemoryGetCurrentAllocator());
+    if(phycontHeap)
+        CHK_GXM(sceGxmMapMemory(phycontHeap->GetStartOfMemory(), phycontHeap->GetSize(), SCE_GXM_MEMORY_ATTRIB_RW));
 
     // allocate ring buffer memory (4 KB aligned, as GXM requires)
     radMemorySetAllocationName("displayBufferData");

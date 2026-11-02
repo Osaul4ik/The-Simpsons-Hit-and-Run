@@ -386,9 +386,13 @@ pddiPrimStream* gxmContext::BeginPrims(pddiShader* mat, pddiPrimType primType, u
 
     pddiBaseContext::BeginPrims(mat, primType, vertexType, vertexCount);
 
-    pddiPrimBufferDesc desc(primType, vertexType, vertexCount);
+    // Buffers are created with a rounded-up capacity so a recycled one fits any nearby count.
+    const int capacity = PrimPoolCapacity(primType, vertexCount);
+    pddiPrimBufferDesc desc(primType, vertexType, capacity);
     gxmPrimBuffer* pooled = AcquirePrimBuffer(primType, vertexType, vertexCount);
     thePrimStream.buffer = pooled ? pooled : device->NewPrimBuffer(&desc);
+    if(((gxmPrimBuffer*)thePrimStream.buffer)->Poolable())
+        ((gxmPrimBuffer*)thePrimStream.buffer)->SetDrawCount(vertexCount);
     thePrimStream.stream = thePrimStream.buffer->Lock();
 
     if((streamsHead.value + 1) % BUFFERED_VERTS == streamsTail)
@@ -612,6 +616,7 @@ gxmPrimBuffer::gxmPrimBuffer(gxmContext* c, pddiPrimType type, unsigned vertexFo
     }
 
     indexCount = nIndex > 0 ? nIndex : nVertex;
+    drawCount = indexCount;
     if(primType == PDDI_PRIM_LINESTRIP)
     {
         PDDIASSERT(!nIndex);
@@ -651,7 +656,7 @@ gxmPrimBuffer::gxmPrimBuffer(gxmContext* c, pddiPrimType type, unsigned vertexFo
     CHK_GXM(sceGxmPrecomputedDrawInit(&precomputed, vertexShader, state));
     const void* streams[] = { buffer, context->dummyVector };
     CHK_GXM(sceGxmPrecomputedDrawSetAllVertexStreams(&precomputed, streams));
-    sceGxmPrecomputedDrawSetParams(&precomputed, primTypeTable[primType], SCE_GXM_INDEX_FORMAT_U16, indices, indexCount);
+    sceGxmPrecomputedDrawSetParams(&precomputed, primTypeTable[primType], SCE_GXM_INDEX_FORMAT_U16, indices, drawCount);
 
     nStrips = 0;
     strips = NULL;
@@ -712,6 +717,16 @@ void gxmPrimBuffer::SetIndices(unsigned short* i, int count)
     PDDIASSERT(count <= (int)indexCount);
     memcpy(indices, i, count * sizeof(unsigned short));
     valid = false;
+}
+
+void gxmPrimBuffer::SetDrawCount(unsigned nVertex)
+{
+    PDDIASSERT(nVertex <= indexCount);
+    if(nVertex != drawCount)
+    {
+        drawCount = nVertex;
+        sceGxmPrecomputedDrawSetParams(&precomputed, primTypeTable[primType], SCE_GXM_INDEX_FORMAT_U16, indices, drawCount);
+    }
 }
 
 void gxmPrimBuffer::Display(void)
@@ -1003,16 +1018,29 @@ void gxmContext::FlushVertexStreams()
     }
 }
 
+int gxmContext::PrimPoolCapacity(pddiPrimType type, int nVertex)
+{
+    // line strips use a paired index buffer and are never pooled, so they keep exact size
+    if(nVertex <= 0 || nVertex > PRIM_POOL_MAX_VERTS || type == PDDI_PRIM_LINESTRIP)
+        return nVertex;
+
+    int capacity = PRIM_POOL_MIN_VERTS;
+    while(capacity < nVertex)
+        capacity <<= 1;
+    return capacity;
+}
+
 gxmPrimBuffer* gxmContext::AcquirePrimBuffer(pddiPrimType type, unsigned vertexType, int nVertex)
 {
-    if(nVertex <= 0 || nVertex > PRIM_POOL_MAX_VERTS)
+    if(nVertex <= 0 || nVertex > PRIM_POOL_MAX_VERTS || type == PDDI_PRIM_LINESTRIP)
         return NULL;
 
-    const unsigned b = gxmPrimBuffer::PoolBucket(type, vertexType, (unsigned)nVertex);
+    const int capacity = PrimPoolCapacity(type, nVertex);
+    const unsigned b = gxmPrimBuffer::PoolBucket(type, vertexType, (unsigned)capacity);
     for(int i = (int)primPoolCount[b] - 1; i >= 0; --i)
     {
         gxmPrimBuffer* buf = primPool[b][i];
-        if(buf->Matches(type, vertexType, nVertex))
+        if(buf->Matches(type, vertexType, capacity))
         {
             primPool[b][i] = primPool[b][--primPoolCount[b]];
             ++primPoolHits;

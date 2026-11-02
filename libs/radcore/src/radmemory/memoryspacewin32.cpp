@@ -41,6 +41,11 @@
 #ifndef RAD_VITA_GXM_CDRAM_RESERVE_KB
 #define RAD_VITA_GXM_CDRAM_RESERVE_KB 2048
 #endif
+// Physically contiguous main RAM is otherwise unused by the game. It becomes a third
+// GPU-readable texture pool (CDRAM -> phycont -> user); this much is left to the system.
+#ifndef RAD_VITA_GXM_PHYCONT_RESERVE_KB
+#define RAD_VITA_GXM_PHYCONT_RESERVE_KB 4096
+#endif
 #define USER_SIZE_IN_BYTES ( 1024 * 1024 * RAD_VITA_GXM_USER_MB )
 #define CDRAM_SIZE_IN_BYTES ( 1024 * 1024 * 16 ) // fallback if the free size cannot be queried
 #else
@@ -71,6 +76,10 @@ extern "C" bool radGxmEarlyInit( void ) __attribute__((weak));
 SceUID g_User_UID, g_Cdram_UID;
 IRadMemoryHeap * g_pIRadMemoryHeap_User = NULL;
 IRadMemoryHeap * g_pIRadMemoryHeap_Cdram = NULL;
+#ifdef RAD_GXM
+SceUID g_Phycont_UID = -1;
+IRadMemoryHeap * g_pIRadMemoryHeap_Phycont = NULL;   // NULL when unavailable
+#endif
 #endif
 
 // XBox doesn't have any optimal memory space alignment or multiple requirements
@@ -113,6 +122,9 @@ void radMemorySpaceInitialize( void )
 
     unsigned int userSize = USER_SIZE_IN_BYTES;
     unsigned int cdramSize = CDRAM_SIZE_IN_BYTES;
+#ifdef RAD_GXM
+    unsigned int phycontSize = 0;
+#endif
 
 #ifdef RAD_GXM
     // Initialise the GXM driver BEFORE the game heaps below take nearly all user RAM and
@@ -138,6 +150,12 @@ void radMemorySpaceInitialize( void )
                 // CDRAM memblocks must be a multiple of 256 KB
                 cdramSize = ( info.size_cdram - reserve ) & ~( 256 * 1024 - 1 );
             }
+
+            const unsigned int phycontReserve = RAD_VITA_GXM_PHYCONT_RESERVE_KB * 1024;
+            if( info.size_phycont > phycontReserve + 1024 * 1024 )
+            {
+                phycontSize = ( info.size_phycont - phycontReserve ) & ~( 1024 * 1024 - 1 );
+            }
         }
     }
 #endif
@@ -162,8 +180,35 @@ void radMemorySpaceInitialize( void )
     g_pIRadMemoryHeap_Cdram = radMemoryCreateDougLeaHeap(
         mem, cdramSize, RADMEMORY_ALLOC_DEFAULT, "cdram");
 
+#ifdef RAD_GXM
+    if( phycontSize > 0 )
+    {
+        g_Phycont_UID = AllocBlockWithFallback( "phycont", SCE_KERNEL_MEMBLOCK_TYPE_USER_MAIN_PHYCONT_NC_RW,
+                                                &phycontSize, 1024 * 1024, 1024 * 1024 );
+        if( g_Phycont_UID >= SCE_OK && sceKernelGetMemBlockBase( g_Phycont_UID, &mem ) == SCE_OK )
+        {
+            g_pIRadMemoryHeap_Phycont = radMemoryCreateDougLeaHeap(
+                mem, phycontSize, RADMEMORY_ALLOC_DEFAULT, "phycont" );
+        }
+        else
+        {
+            // not fatal: textures just use CDRAM and user memory as before
+            if( g_Phycont_UID >= SCE_OK )
+            {
+                sceKernelFreeMemBlock( g_Phycont_UID );
+            }
+            g_Phycont_UID = -1;
+            phycontSize = 0;
+        }
+    }
+#endif
+
 #ifdef RAD_LOG
+#ifdef RAD_GXM
+    rReleasePrintf( "[mem] radMemorySpace: user=%u KB cdram=%u KB phycont=%u KB\n", userSize / 1024, cdramSize / 1024, phycontSize / 1024 );
+#else
     rReleasePrintf( "[mem] radMemorySpace: user=%u KB cdram=%u KB\n", userSize / 1024, cdramSize / 1024 );
+#endif
 #endif
 #endif
 }
@@ -183,6 +228,16 @@ void radMemorySpaceTerminate( void )
     g_pIRadMemoryHeap_Cdram->Release();
     g_pIRadMemoryHeap_Cdram = NULL;
 
+#ifdef RAD_GXM
+    if( g_pIRadMemoryHeap_Phycont != NULL )
+    {
+        g_pIRadMemoryHeap_Phycont->Release();
+        g_pIRadMemoryHeap_Phycont = NULL;
+        sceKernelFreeMemBlock( g_Phycont_UID );
+        g_Phycont_UID = -1;
+    }
+#endif
+
     err = sceKernelFreeMemBlock(g_User_UID);
     rAssert(err == SCE_OK);
 
@@ -197,6 +252,16 @@ static bool IsInUserBlock( void* p )
 {
     char* start = (char*)g_pIRadMemoryHeap_User->GetStartOfMemory();
     return (char*)p >= start && (char*)p < start + g_pIRadMemoryHeap_User->GetSize();
+}
+
+static bool IsInPhycontBlock( void* p )
+{
+    if( g_pIRadMemoryHeap_Phycont == NULL )
+    {
+        return false;
+    }
+    char* start = (char*)g_pIRadMemoryHeap_Phycont->GetStartOfMemory();
+    return (char*)p >= start && (char*)p < start + g_pIRadMemoryHeap_Phycont->GetSize();
 }
 #endif
 
@@ -267,6 +332,10 @@ void * radMemorySpaceAlloc( radMemorySpace space, radMemoryAllocator allocator, 
     {
         void* p = g_pIRadMemoryHeap_Cdram->GetMemory( numBytes );
 #ifdef RAD_GXM
+        if( p == NULL && g_pIRadMemoryHeap_Phycont != NULL )
+        {
+            p = g_pIRadMemoryHeap_Phycont->GetMemory( numBytes );
+        }
         if( p == NULL )
         {
             p = g_pIRadMemoryHeap_User->GetMemory( numBytes );
@@ -299,6 +368,10 @@ void * radMemorySpaceAllocAligned
     {
         void* p = g_pIRadMemoryHeap_Cdram->GetMemoryAligned( numBytes, alignment );
 #ifdef RAD_GXM
+        if( p == NULL && g_pIRadMemoryHeap_Phycont != NULL )
+        {
+            p = g_pIRadMemoryHeap_Phycont->GetMemoryAligned( numBytes, alignment );
+        }
         if( p == NULL )
         {
             p = g_pIRadMemoryHeap_User->GetMemoryAligned( numBytes, alignment );
@@ -325,6 +398,12 @@ IRadMemoryAllocator * radMemorySpaceGetAllocator( radMemorySpace memSpace, radMe
     {
         return g_pIRadMemoryHeap_Cdram;
     }
+#ifdef RAD_GXM
+    else if(memSpace == radMemorySpace_Phycont)
+    {
+        return g_pIRadMemoryHeap_Phycont;   // may be NULL
+    }
+#endif
 #endif
     rAssert( memSpace == radMemorySpace_Main );
 
@@ -350,6 +429,10 @@ void radMemorySpaceFree
     else if(space == radMemorySpace_Cdram)
     {
 #ifdef RAD_GXM
+        if( pMemory != NULL && IsInPhycontBlock( pMemory ) )
+        {
+            return g_pIRadMemoryHeap_Phycont->FreeMemory( pMemory );
+        }
         if( pMemory != NULL && IsInUserBlock( pMemory ) )
         {
             return g_pIRadMemoryHeap_User->FreeMemory( pMemory );
@@ -380,6 +463,10 @@ void radMemorySpaceFreeAligned
     else if(space == radMemorySpace_Cdram)
     {
 #ifdef RAD_GXM
+        if( pMemory != NULL && IsInPhycontBlock( pMemory ) )
+        {
+            return g_pIRadMemoryHeap_Phycont->FreeMemoryAligned( pMemory );
+        }
         if( pMemory != NULL && IsInUserBlock( pMemory ) )
         {
             return g_pIRadMemoryHeap_User->FreeMemoryAligned( pMemory );

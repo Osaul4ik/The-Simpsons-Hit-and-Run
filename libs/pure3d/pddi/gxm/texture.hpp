@@ -57,7 +57,15 @@ protected:
 
     pddiLockInfo lock;
 
-    uint8_t** bits;
-    bool inUserMem; // mip chain lives in radMemorySpace_User instead of CDRAM
+    // Only the base level is stored on the GPU (the GXM backend never samples mip levels).
+    // Lock()/Unlock() of higher levels go through a temporary buffer that is discarded.
+    uint8_t* bits;
+    int stride;         // bytes per row of the base level (from sceGxmTextureGetStride)
+    void* lockTemp;     // temporary buffer of the current Lock() (DXT and mip > 0), or NULL
+
+    // native 8-bit palettized storage (P8)
+    uint32_t* paletteMem;   // 256 entries, GPU readable
+    int nPalette;
+    bool opaquePalette;     // texture has no alpha: force palette alpha to 0xff
 };
 #endif

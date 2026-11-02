@@ -306,7 +306,8 @@ enum radMemorySpace
 #ifdef RAD_VITA
     radMemorySpace_Main,        // Vita main memory.
     radMemorySpace_User,        // Vita GPU-mapped memory.
-    radMemorySpace_Cdram        // Vita video memory.
+    radMemorySpace_Cdram,       // Vita video memory.
+    radMemorySpace_Phycont      // Vita physically contiguous RAM (GXM texture overflow pool, only via radMemorySpaceGetAllocator).
 #elif defined (RAD_WIN32) || defined (RAD_XBOX)
     radMemorySpace_Main         // Win/Xbox main memory.
 #endif

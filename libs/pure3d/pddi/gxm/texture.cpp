@@ -10,6 +10,7 @@
 #include <pddi/gxm/texture_swizzler.hpp>
 
 #include <math.h>
+#include <string.h>
 #include <pddi/base/debug.hpp>
 #include <radmemory.hpp>
 #ifdef RAD_LOG
@@ -18,10 +19,25 @@
 
 #include <microprofile.h>
 
+// Palettized (4/8 bit) textures are stored natively as P8 with a 256 entry palette.
+// The palette words are 0xAARRGGBB like pddiColour. If red and blue come out swapped on
+// the device, build with -DGXM_PALETTE_TEXTURE_FORMAT=SCE_GXM_TEXTURE_FORMAT_P8_ABGR.
+#ifndef GXM_PALETTE_TEXTURE_FORMAT
+#define GXM_PALETTE_TEXTURE_FORMAT SCE_GXM_TEXTURE_FORMAT_P8_ARGB
+#endif
+
+// Opaque static RGB textures are stored as RGB565 (half the memory of RGB888).
+// Build with -DRAD_GXM_TEXTURE_RGB565=0 to keep them 32 bit.
+#ifndef RAD_GXM_TEXTURE_RGB565
+#define RAD_GXM_TEXTURE_RGB565 1
+#endif
+
 static inline SceGxmTextureFormat PickPixelFormat(pddiPixelFormat format)
 {
     switch (format)
     {
+    case PDDI_PIXEL_PAL8: return GXM_PALETTE_TEXTURE_FORMAT;
+    case PDDI_PIXEL_RGB565: return SCE_GXM_TEXTURE_FORMAT_U5U6U5_RGB;
     case PDDI_PIXEL_RGB888: return SCE_GXM_TEXTURE_FORMAT_X8U8U8U8_1RGB;
     case PDDI_PIXEL_ARGB8888: return SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ARGB;
     case PDDI_PIXEL_DXT1: return SCE_GXM_TEXTURE_FORMAT_UBC1_ABGR;
@@ -96,23 +112,22 @@ int fastlog2(int x)
     return r;
 }
 
-// Allocates all mip levels from one pool; on any failure frees what was allocated.
-static bool AllocMipChain(radMemorySpace space, uint8_t** bits, const size_t* sizes, int nLevels)
+static inline bool IsDXT(pddiPixelFormat f)
 {
-    for(int i = 0; i < nLevels; i++)
-    {
-        bits[i] = (uint8_t*)radMemorySpaceAllocAligned(space, radMemoryGetCurrentAllocator(), sizes[i], SCE_GXM_TEXTURE_ALIGNMENT);
-        if(bits[i] == NULL)
-        {
-            for(int j = 0; j < i; j++)
-            {
-                radMemorySpaceFreeAligned(space, radMemoryGetCurrentAllocator(), bits[j]);
-                bits[j] = NULL;
-            }
-            return false;
-        }
-    }
-    return true;
+    return f == PDDI_PIXEL_DXT1 || f == PDDI_PIXEL_DXT3 || f == PDDI_PIXEL_DXT5;
+}
+
+// GPU texture memory. radMemorySpace_Cdram already spills into the user block when
+// CDRAM is full, and frees from the right heap.
+static inline uint8_t* AllocGpuMem(size_t size, unsigned alignment)
+{
+    return (uint8_t*)radMemorySpaceAllocAligned(radMemorySpace_Cdram, radMemoryGetCurrentAllocator(), size, alignment);
+}
+
+static inline void FreeGpuMem(void* p)
+{
+    if(p)
+        radMemorySpaceFreeAligned(radMemorySpace_Cdram, radMemoryGetCurrentAllocator(), p);
 }
 
 bool gxmTexture::Create(int x, int y, int bpp, int alphaDepth, int nMip, pddiTextureType textureType, pddiTextureUsageHint usageHint)
@@ -141,63 +156,125 @@ bool gxmTexture::Create(int x, int y, int bpp, int alphaDepth, int nMip, pddiTex
         return false;
     }
 
-    // TODO palletized
-    if (textureType == PDDI_TEXTYPE_PALETTIZED)
+    // 4 and 8 bit palettized textures are both stored as P8 (indices one per byte).
+    const bool palettized = (textureType == PDDI_TEXTYPE_PALETTIZED);
+    opaquePalette = (alphaDepth == 0);
+    if (palettized)
     {
-        textureType = PDDI_TEXTYPE_RGB;
-        bpp = 32;
+        bpp = 8;
+    }
+    else if (textureType == PDDI_TEXTYPE_RGB)
+    {
+        // 16 bit formats with alpha have no lock path here, keep them 32 bit.
+        if (bpp <= 16 && alphaDepth > 0)
+            bpp = 32;
+#if RAD_GXM_TEXTURE_RGB565
+        else if (alphaDepth == 0 && usageHint == PDDI_USAGE_STATIC)
+            bpp = 16;
+#endif
     }
 
     lock.depth = bpp;
-    lock.format = PickPixelFormat(textureType, bpp, alphaDepth);
+    lock.format = palettized ? PDDI_PIXEL_PAL8 : PickPixelFormat(textureType, bpp, alphaDepth);
+    lock.palette = NULL;
 
-    // Compute the size of every mip level
-    const bool compressed = (type == PDDI_TEXTYPE_DXT1 || type == PDDI_TEXTYPE_DXT3 || type == PDDI_TEXTYPE_DXT5);
-    const unsigned int blocksize = type == PDDI_TEXTYPE_DXT1 ? 8 : 16;
-    const int nLevels = nMipMap + 1;
-    size_t* sizes = new size_t[nLevels];
-    for(int i = 0; i < nLevels; i++)
-    {
-        sizes[i] = compressed
-            ? size_t(ceil(double(xSize>>i)/4)*ceil(double(ySize>>i)/4)*blocksize)
-            : size_t(((xSize>>i)*(ySize>>i)*bpp)/8);
-    }
+    const bool compressed = IsDXT(lock.format);
+    const bool yuv = (lock.format == PDDI_PIXEL_YUV);
 
-    // CDRAM is the fast pool but it fills up. Previously a failed allocation returned NULL,
-    // which was stored unchecked and gave transparent/garbage textures. Fall back to the
-    // GPU-readable user pool, and fail cleanly if both are full.
-    radMemorySetAllocationName("gxmTexture");
-    bits = new uint8_t* [nLevels];
-    inUserMem = false;
-    if(!AllocMipChain(radMemorySpace_Cdram, bits, sizes, nLevels))
-    {
-        inUserMem = true;
-        if(!AllocMipChain(radMemorySpace_User, bits, sizes, nLevels))
-        {
-            delete [] bits;
-            bits = NULL;
-            inUserMem = false;
-            delete [] sizes;
-            lastError = PDDI_TEX_OUT_OF_MEMORY;
-#ifdef RAD_LOG
-            rReleasePrintf("[gxm] texture %dx%d (%d mips) alloc FAILED in CDRAM and user memory\n", xSize, ySize, nMipMap);
-#endif
-            return false;
-        }
-#ifdef RAD_LOG
-        static int s_fallbackLogs = 0;
-        if(s_fallbackLogs++ < 32)
-            rReleasePrintf("[gxm] texture %dx%d (%d mips) placed in user memory (CDRAM full)\n", xSize, ySize, nMipMap);
-#endif
-    }
-    delete [] sizes;
-
+    // Only the base level lives on the GPU.
+    size_t size;
     if(compressed)
-        CHK_GXM(sceGxmTextureInitSwizzled(&texture, bits[0], PickPixelFormat(lock.format), xSize, ySize, nMipMap));
+    {
+        const unsigned int blocksize = type == PDDI_TEXTYPE_DXT1 ? 8 : 16;
+        size = size_t(ceil(double(xSize)/4)*ceil(double(ySize)/4)*blocksize);
+        stride = 0;
+    }
+    else if(yuv)
+    {
+        size = size_t((xSize*ySize*bpp)/8);
+        stride = (xSize*bpp)/8;
+    }
     else
-        CHK_GXM(sceGxmTextureInitLinear(&texture, bits[0], PickPixelFormat(lock.format), xSize, ySize, nMipMap));
+    {
+        // linear textures are padded to a multiple of 8 pixels per row; the real value
+        // is read back from GXM below
+        stride = ((xSize + 7) & ~7) * (bpp / 8);
+        size = size_t(stride) * ySize;
+    }
 
-    if(context->GetDisplay()->ExtBGRA())
+    // Previously a failed allocation returned NULL, which was stored unchecked and gave
+    // transparent/garbage textures. Fail cleanly if both CDRAM and user memory are full.
+    radMemorySetAllocationName("gxmTexture");
+    for(int attempt = 0; attempt < 2; attempt++)
+    {
+        bits = AllocGpuMem(size, SCE_GXM_TEXTURE_ALIGNMENT);
+        if(bits == NULL)
+            break;
+
+        if(compressed)
+            CHK_GXM(sceGxmTextureInitSwizzled(&texture, bits, PickPixelFormat(lock.format), xSize, ySize, 0));
+        else
+            CHK_GXM(sceGxmTextureInitLinear(&texture, bits, PickPixelFormat(lock.format), xSize, ySize, 0));
+
+        if(compressed || yuv)
+            break;
+
+        const int realStride = (int)sceGxmTextureGetStride(&texture);
+        if(size_t(realStride) * ySize <= size)
+        {
+            stride = realStride;
+            break;
+        }
+
+        // our guess was too small: reallocate with the stride GXM actually uses
+        FreeGpuMem(bits);
+        bits = NULL;
+        stride = realStride;
+        size = size_t(stride) * ySize;
+    }
+
+    if(bits && palettized)
+    {
+        paletteMem = (uint32_t*)AllocGpuMem(256 * sizeof(uint32_t), SCE_GXM_PALETTE_ALIGNMENT);
+        if(paletteMem == NULL)
+        {
+            FreeGpuMem(bits);
+            bits = NULL;
+        }
+        else
+        {
+            memset(paletteMem, 0, 256 * sizeof(uint32_t));
+            lock.palette = paletteMem;
+            nPalette = 0;
+            CHK_GXM(sceGxmTextureSetPalette(&texture, paletteMem));
+        }
+    }
+
+    if(bits == NULL)
+    {
+        lastError = PDDI_TEX_OUT_OF_MEMORY;
+#ifdef RAD_LOG
+        rReleasePrintf("[gxm] texture %dx%d alloc FAILED in CDRAM and user memory\n", xSize, ySize);
+#endif
+        return false;
+    }
+
+    if(lock.format == PDDI_PIXEL_RGB565)
+    {
+        // MakeColour() packs 0xAARRGGBB into 565; the alpha bits land above bit 15 and
+        // are dropped by the 16 bit store.
+        lock.native = false;
+        lock.rgbaRShift[0] = 19; lock.rgbaLShift[0] = 11;
+        lock.rgbaRShift[1] = 10; lock.rgbaLShift[1] = 5;
+        lock.rgbaRShift[2] = 3;  lock.rgbaLShift[2] = 0;
+        lock.rgbaRShift[3] = 24; lock.rgbaLShift[3] = 16;
+
+        lock.rgbaMask[0] = 0x0000f800;
+        lock.rgbaMask[1] = 0x000007e0;
+        lock.rgbaMask[2] = 0x0000001f;
+        lock.rgbaMask[3] = 0;
+    }
+    else if(context->GetDisplay()->ExtBGRA())
     {
         lock.native = true;
         lock.rgbaLShift[0] = lock.rgbaRShift[0] =
@@ -238,19 +315,22 @@ gxmTexture::gxmTexture(gxmContext* c)
     context = c;
     contextID = c->contextID;
     bits = NULL;
-    inUserMem = false;
+    stride = 0;
+    lockTemp = NULL;
+    paletteMem = NULL;
+    nPalette = 0;
+    opaquePalette = false;
+    nMipMap = 0;
+    xSize = ySize = 0;
     priority = 15;
 }
 
 gxmTexture::~gxmTexture()
 {
-    if(bits)
-    {
-        for(int i = 0; i < nMipMap+1; i++)
-            if(bits[i])
-                radMemorySpaceFreeAligned(inUserMem ? radMemorySpace_User : radMemorySpace_Cdram, radMemoryGetCurrentAllocator(), bits[i]);
-        delete [] bits;
-    }
+    if(lockTemp)
+        radMemoryFreeAligned(lockTemp);
+    FreeGpuMem(bits);
+    FreeGpuMem(paletteMem);
 
     context->ADD_STAT(PDDI_STAT_TEXTURE_ALLOC_32BIT, -(float)((xSize * ySize * lock.depth) / 8192));
     context->ADD_STAT(PDDI_STAT_TEXTURE_COUNT_32BIT, -1);
@@ -258,6 +338,9 @@ gxmTexture::~gxmTexture()
 
 pddiPixelFormat gxmTexture::GetPixelFormat()
 {
+    // lets tImageConverter know it has to upload the palette
+    if(lock.format == PDDI_PIXEL_PAL8)
+        return PDDI_PIXEL_PAL8;
     return PDDI_PIXEL_ARGB8888;
 }
 
@@ -290,23 +373,41 @@ pddiLockInfo* gxmTexture::Lock(int mipMap, pddiRect* rect)
 {
     PDDIASSERT(mipMap <= nMipMap);
 
-    lock.width = 1 << (log2X-mipMap);
-    lock.height = 1 << (log2Y-mipMap);
-    if (lock.format == PDDI_PIXEL_DXT1 || lock.format == PDDI_PIXEL_DXT3 || lock.format == PDDI_PIXEL_DXT5)
+    if(lockTemp)
+    {
+        radMemoryFreeAligned(lockTemp);
+        lockTemp = NULL;
+    }
+
+    lock.width = rmt::Max(xSize >> mipMap, 1);
+    lock.height = rmt::Max(ySize >> mipMap, 1);
+
+    if (IsDXT(lock.format))
     {
         unsigned int blocksize = lock.format == PDDI_PIXEL_DXT1 ? 8 : 16;
         lock.pitch = ceil( double( xSize >> mipMap ) / 4 ) * blocksize;
-        lock.bits = radMemoryAllocAligned(radMemoryGetCurrentAllocator(), size_t(ceil(double(ySize>>mipMap)/4)*lock.pitch), 16);
+        lockTemp = radMemoryAllocAligned(radMemoryGetCurrentAllocator(), size_t(ceil(double(ySize>>mipMap)/4)*lock.pitch), 16);
+        lock.bits = lockTemp;
     }
     else if (lock.format == PDDI_PIXEL_YUV)
     {
         lock.pitch = (lock.width * lock.depth) / 8;
-        lock.bits = bits[mipMap];
+        lock.bits = bits;
+    }
+    else if (mipMap == 0)
+    {
+        // bottom-up rows, written straight into the texture
+        lock.pitch = -stride;
+        lock.bits = bits + size_t(stride) * (lock.height - 1);
     }
     else
     {
-        lock.pitch = -(lock.width * 4);
-        lock.bits = bits[mipMap] + (lock.width * (lock.height - 1) * 4);
+        // higher levels are not stored: the caller writes into a scratch buffer that
+        // Unlock() throws away
+        const int rowBytes = (lock.width * lock.depth) / 8;
+        lockTemp = radMemoryAllocAligned(radMemoryGetCurrentAllocator(), size_t(rowBytes) * lock.height, 16);
+        lock.pitch = -rowBytes;
+        lock.bits = (uint8_t*)lockTemp + size_t(rowBytes) * (lock.height - 1);
     }
 
     return &lock;
@@ -314,16 +415,21 @@ pddiLockInfo* gxmTexture::Lock(int mipMap, pddiRect* rect)
 
 void gxmTexture::Unlock(int mipLevel)
 {
-    if(lock.format == PDDI_PIXEL_DXT1 || lock.format == PDDI_PIXEL_DXT3 || lock.format == PDDI_PIXEL_DXT5)
+    if(lockTemp == NULL)
+        return;
+
+    if(mipLevel == 0 && IsDXT(lock.format))
     {
-        uint32_t width = ceil(double(xSize >> mipLevel) / 4);
-        uint32_t height = ceil(double(ySize >> mipLevel) / 4);
+        uint32_t width = ceil(double(xSize) / 4);
+        uint32_t height = ceil(double(ySize) / 4);
         if(type == PDDI_TEXTYPE_DXT5)
-            SwizzleTexData128Bpp(bits[mipLevel], (uint8_t*)lock.bits, 0, 0, width, height, width, rmt::Min(width, height));
+            SwizzleTexData128Bpp(bits, (uint8_t*)lockTemp, 0, 0, width, height, width, rmt::Min(width, height));
         else
-			SwizzleTexData64Bpp(bits[mipLevel], (uint8_t*)lock.bits, 0, 0, width, height, width, rmt::Min(width, height));
-        radMemoryFreeAligned(lock.bits);
+            SwizzleTexData64Bpp(bits, (uint8_t*)lockTemp, 0, 0, width, height, width, rmt::Min(width, height));
     }
+
+    radMemoryFreeAligned(lockTemp);
+    lockTemp = NULL;
 }
 
 void gxmTexture::SetPriority(int p)
@@ -348,14 +454,29 @@ void gxmTexture::Discard(void)
 // palette managment
 int gxmTexture::GetNumPaletteEntries(void)
 {
-    return 0;
+    return nPalette;
 }
 
 void gxmTexture::SetPalette(int nEntries, pddiColour* palette)
 {
+    if(paletteMem == NULL || palette == NULL)
+        return;
+
+    if(nEntries > 256)
+        nEntries = 256;
+
+    const uint32_t* src = (const uint32_t*)palette;
+    const uint32_t alpha = opaquePalette ? 0xff000000 : 0;
+    for(int i = 0; i < nEntries; i++)
+        paletteMem[i] = src[i] | alpha;
+    nPalette = nEntries;
 }
 
 int gxmTexture::GetPalette(pddiColour* palette)
 {
-    return 0;
+    if(paletteMem == NULL || palette == NULL)
+        return 0;
+
+    memcpy(palette, paletteMem, nPalette * sizeof(uint32_t));
+    return nPalette;
 }

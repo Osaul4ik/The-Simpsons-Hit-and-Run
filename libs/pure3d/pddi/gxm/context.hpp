@@ -15,7 +15,8 @@
 // Recycling of immediate-mode prim buffers (see gxmContext::AcquirePrimBuffer).
 #define PRIM_POOL_BUCKETS   64
 #define PRIM_POOL_DEPTH     4
-#define PRIM_POOL_MAX_VERTS 256   // only small buffers are pooled, to bound the memory held
+#define PRIM_POOL_MAX_VERTS 512   // only small buffers are pooled, to bound the memory held
+#define PRIM_POOL_MIN_VERTS 8     // buffer capacities are rounded up to a power of two >= this
 
 #include <pddi/pddi.hpp>
 #include <pddi/base/basecontext.hpp>
@@ -162,13 +163,16 @@ protected:
     SceGxmNotification streamsHead;
     class pddiPrimBuffer* streams[BUFFERED_VERTS];
 
-    // Pool of finished immediate-mode prim buffers, keyed by (type, format, vertex count).
+    // Pool of finished immediate-mode prim buffers, keyed by (type, format, capacity).
+    // Capacity is the vertex count rounded up to a power of two, so buffers are reused for
+    // any count that fits; the draw is then limited to the vertices actually written.
     // Creating one costs three heap allocations plus a precomputed-draw init, which was
     // done for every BeginPrims() call.
     class gxmPrimBuffer* primPool[PRIM_POOL_BUCKETS][PRIM_POOL_DEPTH];
     unsigned char primPoolCount[PRIM_POOL_BUCKETS];
     unsigned primPoolHits, primPoolMisses, midSceneFlushes, statFrames;
 
+    static int PrimPoolCapacity(pddiPrimType type, int nVertex);
     class gxmPrimBuffer* AcquirePrimBuffer(pddiPrimType type, unsigned vertexType, int nVertex);
     void RecyclePrimBuffer(pddiPrimBuffer* buffer);
     void DrainPrimPool();
@@ -211,10 +215,13 @@ public:
     // pool support
     bool IsUnshared() const { return refCount <= 0; }
     bool Poolable() const { return allocated <= PRIM_POOL_MAX_VERTS && indexCount == allocated; }
-    bool Matches(pddiPrimType type, unsigned vertexFormat, int nVertex) const
+    bool Matches(pddiPrimType type, unsigned vertexFormat, int capacity) const
     {
-        return primType == type && vertexType == vertexFormat && (int)allocated == nVertex;
+        return primType == type && vertexType == vertexFormat && (int)allocated == capacity;
     }
+    // Limits the draw to the first nVertex vertices (identity index buffer). Only valid for
+    // poolable buffers, whose index count equals their capacity.
+    void SetDrawCount(unsigned nVertex);
     static unsigned PoolBucket(pddiPrimType type, unsigned vertexFormat, unsigned nVertex)
     {
         unsigned k = nVertex * 2654435761u ^ vertexFormat * 40503u ^ (unsigned)type * 97u;
@@ -245,6 +252,7 @@ protected:
 
     unsigned short* indices;
     unsigned indexCount;
+    unsigned drawCount;     // indices submitted by Display(); <= indexCount
 
     bool valid;
     SceGxmVertexProgram* vertexShader;
