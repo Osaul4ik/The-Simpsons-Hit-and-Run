@@ -15,6 +15,9 @@
 #include <radmemory.hpp>
 #ifdef RAD_LOG
 #include <raddebug.hpp>
+// Defined in code/main/win32main.cpp (logs a milestone plus kernel/newlib/heap memory).
+// Weak so pure3d still links without the game executable's code.
+void LogProgress( const char* stage ) __attribute__((weak));
 #endif
 
 #include <math.h>
@@ -201,6 +204,10 @@ void gxmContext::BeginFrame()
         rReleasePrintf("[gxm] last %u frames: primPool hits=%u misses=%u (pooled %u KB), mid-scene flushes=%u\n",
                        statFrames, primPoolHits, primPoolMisses, primPoolBytes / 1024, midSceneFlushes);
         statFrames = primPoolHits = primPoolMisses = midSceneFlushes = 0;
+        if( LogProgress != NULL )
+        {
+            LogProgress( "periodic (900 frames)" );
+        }
     }
 #endif
 

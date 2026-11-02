@@ -88,6 +88,13 @@
 #include <radmemorymonitor.hpp>
 #include <worldsim/worldphysicsmanager.h>
 #endif
+
+// Defined in main/win32main.cpp; logs a milestone plus the memory state (RAD_LOG Vita builds only).
+#if defined( RAD_LOG ) && defined( RAD_VITA )
+void LogProgress( const char* stage );
+#else
+#define LogProgress( stage ) ((void)0)
+#endif
 //******************************************************************************
 //
 // Global Data, Local Data, Local Classes
@@ -1047,6 +1054,7 @@ void RenderManager::OnProcessRequestsComplete( void* pUserData )
         if( i<mpZEL->GetNumLoadZones() && (msLayer & RenderEnums::LevelSlot) )
         {
             rReleasePrintf("Zone Loading Ended: %s\n",mpZEL->GetLoadZone(i));
+            LogProgress( "zone loaded" );
             //HeapMgr()->DumpHeapStats(true);
             tUID tempUID = tName::MakeUID(mpZEL->GetLoadZone(i));
             GetEventManager()->TriggerEvent( EVENT_NAMED_DYNAMIC_ZONE_LOAD_ENDED, &tempUID );
@@ -1210,6 +1218,7 @@ END_PROFILE( "Add Requests Int" );
                 {
                     GetEventManager()->TriggerEvent( EVENT_ALL_DYNAMIC_ZONE_END );
                     rReleasePrintf("ZoneLoadingEnded Verified\n");
+                    LogProgress( "all zones loaded" );
                     mbDynaLoading = false;
                     AllWrappers::GetInstance()->mLoader( AllWrappers::msBillboard     ).ModRegdListener( this, RenderEnums::IgnoreGuts );         
                 }
@@ -1638,6 +1647,7 @@ END_PROFILE( "Add Requests Int" );
                 {
                     GetEventManager()->TriggerEvent( EVENT_ALL_DYNAMIC_ZONE_END );
                     rReleasePrintf("ZoneLoadingEnded Verified\n");
+                    LogProgress( "all zones loaded" );
                     mbDynaLoading = false;
                     AllWrappers::GetInstance()->mLoader( AllWrappers::msBillboard     ).ModRegdListener( this, RenderEnums::IgnoreGuts );         
                 }
@@ -2058,4 +2068,3 @@ RenderManager::AvgTimeCounter::GetAverageTimePerFrame()const
 {
     return mElapsedTimeSum / ELAPSED_TIME_ARRAY_SIZE;
 }
-
