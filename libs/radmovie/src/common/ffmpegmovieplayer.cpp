@@ -253,9 +253,30 @@ void radMoviePlayer::Load( const char * pVideoFileName, unsigned int audioTrackI
     // movie on the Vita. The Ogg headers are in the first few KB, so this is plenty.
     m_pFormatCtx->probesize = 512 * 1024;
     m_pFormatCtx->max_analyze_duration = 1000000;
+    // Do not decode extra frames just to guess the fps (720p Theora is very slow on the Vita CPU).
+    m_pFormatCtx->fps_probe_size = 2;
     AV_LOAD_CHK( avformat_open_input( &m_pFormatCtx, pVideoFileName, NULL, NULL ) );
     const unsigned int openMs = radMovieMsSince( loadStart );
-    AV_LOAD_CHK( avformat_find_stream_info( m_pFormatCtx, NULL ) );
+    // avformat_open_input already parsed the Ogg/Theora headers (codec, size, extradata).
+    // avformat_find_stream_info would additionally DECODE every frame inside the probe
+    // window; the logo movies are tiny low-bitrate files, so 512 KB holds hundreds of
+    // 720p frames, i.e. ~25 s of 100% CPU per movie on the Vita. Skip it when the
+    // video stream is already fully described.
+    bool needProbe = true;
+    for( unsigned int i = 0; i < m_pFormatCtx->nb_streams; ++i )
+    {
+        const AVCodecParameters* p = m_pFormatCtx->streams[i]->codecpar;
+        if( p->codec_type == AVMEDIA_TYPE_VIDEO && p->codec_id == AV_CODEC_ID_THEORA &&
+            p->width > 0 && p->height > 0 && p->extradata_size > 0 )
+        {
+            needProbe = false;
+            break;
+        }
+    }
+    if( needProbe )
+    {
+        AV_LOAD_CHK( avformat_find_stream_info( m_pFormatCtx, NULL ) );
+    }
     const unsigned int probeMs = radMovieMsSince( loadStart ) - openMs;
 
     const AVCodec* pVideoCodec = NULL;
@@ -329,10 +350,10 @@ void radMoviePlayer::Load( const char * pVideoFileName, unsigned int audioTrackI
             AV_LOAD_CHK( swr_alloc_set_opts2( &m_pSwrCtx,
                 &layout,
                 AV_SAMPLE_FMT_S16,
-                pAudioParams->sample_rate,
-                &pAudioParams->ch_layout,
-                (AVSampleFormat)pAudioParams->format,
-                pAudioParams->sample_rate,
+                m_pAudioCtx->sample_rate,
+                &m_pAudioCtx->ch_layout,
+                m_pAudioCtx->sample_fmt,
+                m_pAudioCtx->sample_rate,
                 0,
                 NULL ) );
             AV_LOAD_CHK( swr_init( m_pSwrCtx ) );
@@ -610,7 +631,8 @@ void radMoviePlayer::Service( void )
             // Keep an eye on the states of things to detect the end of the movie
             //
 
-            if( av_read_frame( m_pFormatCtx, m_pPacket ) >= 0 )
+            const int readResult = av_read_frame( m_pFormatCtx, m_pPacket );
+            if( readResult >= 0 )
             {
                 if( m_pPacket->stream_index == m_VideoTrackIndex )
                 {
@@ -717,7 +739,7 @@ void radMoviePlayer::Service( void )
             }
             else
             {
-                rDebugChannelPrintf( radMovieDebugChannel2, "radMoviePlayer: Out of data at [%lld]\n", m_pVideoFrame->pts );
+                rReleasePrintf( "radMoviePlayer: av_read_frame ended the movie (%d, EOF=%d)\n", readResult, (int)AVERROR_EOF );
 
                 // We've hit the end of the movie.  Unload!
 
