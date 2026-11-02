@@ -31,15 +31,15 @@
 #ifdef RAD_VITA
 #ifdef RAD_GXM
 // Native GXM backend: textures, display/depth buffers and CDRAM-resident data live in
-// radMemorySpace_Cdram (all the VRAM except RAD_VITA_GXM_CDRAM_RESERVE_KB, which GXM
-// needs for its own driver allocations), and vertex data, ring buffers and the
+// radMemorySpace_Cdram (all the VRAM left after the GXM driver has initialised, except
+// RAD_VITA_GXM_CDRAM_RESERVE_KB of slack; the driver itself is initialised first), and vertex data, ring buffers and the
 // overflow of textures live in radMemorySpace_User (GPU-readable RAM).
 // vitaGL is not linked in this configuration, so nothing else competes for this memory.
 #ifndef RAD_VITA_GXM_USER_MB
 #define RAD_VITA_GXM_USER_MB 80
 #endif
 #ifndef RAD_VITA_GXM_CDRAM_RESERVE_KB
-#define RAD_VITA_GXM_CDRAM_RESERVE_KB 8192
+#define RAD_VITA_GXM_CDRAM_RESERVE_KB 2048
 #endif
 #define USER_SIZE_IN_BYTES ( 1024 * 1024 * RAD_VITA_GXM_USER_MB )
 #define CDRAM_SIZE_IN_BYTES ( 1024 * 1024 * 16 ) // fallback if the free size cannot be queried

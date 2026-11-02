@@ -72,6 +72,7 @@ const int PDDI_LIBID_VITA       = 13;
 #define PDDI_TEX_NOT_POW_2    200
 #define PDDI_TEX_TOO_BIG      201
 #define PDDI_TEX_BADFORMAT    202
+#define PDDI_TEX_OUT_OF_MEMORY 203
 
 #if defined( RAD_WIN32 ) || defined( RAD_LINUX )
 // code used for library initialisation on a PC

@@ -58,6 +58,6 @@ protected:
     pddiLockInfo lock;
 
     uint8_t** bits;
+    bool inUserMem; // mip chain lives in radMemorySpace_User instead of CDRAM
 };
 #endif
-

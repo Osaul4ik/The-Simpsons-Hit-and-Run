@@ -12,6 +12,9 @@
 #include <math.h>
 #include <pddi/base/debug.hpp>
 #include <radmemory.hpp>
+#ifdef RAD_LOG
+#include <raddebug.hpp>
+#endif
 
 #include <microprofile.h>
 
@@ -93,6 +96,25 @@ int fastlog2(int x)
     return r;
 }
 
+// Allocates all mip levels from one pool; on any failure frees what was allocated.
+static bool AllocMipChain(radMemorySpace space, uint8_t** bits, const size_t* sizes, int nLevels)
+{
+    for(int i = 0; i < nLevels; i++)
+    {
+        bits[i] = (uint8_t*)radMemorySpaceAllocAligned(space, radMemoryGetCurrentAllocator(), sizes[i], SCE_GXM_TEXTURE_ALIGNMENT);
+        if(bits[i] == NULL)
+        {
+            for(int j = 0; j < i; j++)
+            {
+                radMemorySpaceFreeAligned(space, radMemoryGetCurrentAllocator(), bits[j]);
+                bits[j] = NULL;
+            }
+            return false;
+        }
+    }
+    return true;
+}
+
 bool gxmTexture::Create(int x, int y, int bpp, int alphaDepth, int nMip, pddiTextureType textureType, pddiTextureUsageHint usageHint)
 {
     xSize = x;
@@ -129,21 +151,51 @@ bool gxmTexture::Create(int x, int y, int bpp, int alphaDepth, int nMip, pddiTex
     lock.depth = bpp;
     lock.format = PickPixelFormat(textureType, bpp, alphaDepth);
 
+    // Compute the size of every mip level
+    const bool compressed = (type == PDDI_TEXTYPE_DXT1 || type == PDDI_TEXTYPE_DXT3 || type == PDDI_TEXTYPE_DXT5);
+    const unsigned int blocksize = type == PDDI_TEXTYPE_DXT1 ? 8 : 16;
+    const int nLevels = nMipMap + 1;
+    size_t* sizes = new size_t[nLevels];
+    for(int i = 0; i < nLevels; i++)
+    {
+        sizes[i] = compressed
+            ? size_t(ceil(double(xSize>>i)/4)*ceil(double(ySize>>i)/4)*blocksize)
+            : size_t(((xSize>>i)*(ySize>>i)*bpp)/8);
+    }
+
+    // CDRAM is the fast pool but it fills up. Previously a failed allocation returned NULL,
+    // which was stored unchecked and gave transparent/garbage textures. Fall back to the
+    // GPU-readable user pool, and fail cleanly if both are full.
     radMemorySetAllocationName("gxmTexture");
-    bits = new uint8_t* [nMipMap + 1];
-    if (type == PDDI_TEXTYPE_DXT1 || type == PDDI_TEXTYPE_DXT3 || type == PDDI_TEXTYPE_DXT5)
+    bits = new uint8_t* [nLevels];
+    inUserMem = false;
+    if(!AllocMipChain(radMemorySpace_Cdram, bits, sizes, nLevels))
     {
-        unsigned int blocksize = type == PDDI_TEXTYPE_DXT1 ? 8 : 16;
-        for(int i = 0; i < nMipMap+1; i++)
-            bits[i] = (uint8_t*)radMemorySpaceAllocAligned(radMemorySpace_Cdram, radMemoryGetCurrentAllocator(), size_t(ceil(double(xSize>>i)/4)*ceil(double(ySize>>i)/4)*blocksize), SCE_GXM_TEXTURE_ALIGNMENT);
+        inUserMem = true;
+        if(!AllocMipChain(radMemorySpace_User, bits, sizes, nLevels))
+        {
+            delete [] bits;
+            bits = NULL;
+            inUserMem = false;
+            delete [] sizes;
+            lastError = PDDI_TEX_OUT_OF_MEMORY;
+#ifdef RAD_LOG
+            rReleasePrintf("[gxm] texture %dx%d (%d mips) alloc FAILED in CDRAM and user memory\n", xSize, ySize, nMipMap);
+#endif
+            return false;
+        }
+#ifdef RAD_LOG
+        static int s_fallbackLogs = 0;
+        if(s_fallbackLogs++ < 32)
+            rReleasePrintf("[gxm] texture %dx%d (%d mips) placed in user memory (CDRAM full)\n", xSize, ySize, nMipMap);
+#endif
+    }
+    delete [] sizes;
+
+    if(compressed)
         CHK_GXM(sceGxmTextureInitSwizzled(&texture, bits[0], PickPixelFormat(lock.format), xSize, ySize, nMipMap));
-    }
     else
-    {
-        for(int i = 0; i < nMipMap+1; i++)
-            bits[i] = (uint8_t*)radMemorySpaceAllocAligned(radMemorySpace_Cdram, radMemoryGetCurrentAllocator(), ((xSize>>i)*(ySize>>i)*bpp)/8, SCE_GXM_TEXTURE_ALIGNMENT);
         CHK_GXM(sceGxmTextureInitLinear(&texture, bits[0], PickPixelFormat(lock.format), xSize, ySize, nMipMap));
-    }
 
     if(context->GetDisplay()->ExtBGRA())
     {
@@ -186,6 +238,7 @@ gxmTexture::gxmTexture(gxmContext* c)
     context = c;
     contextID = c->contextID;
     bits = NULL;
+    inUserMem = false;
     priority = 15;
 }
 
@@ -194,7 +247,8 @@ gxmTexture::~gxmTexture()
     if(bits)
     {
         for(int i = 0; i < nMipMap+1; i++)
-            radMemorySpaceFreeAligned(radMemorySpace_Cdram, radMemoryGetCurrentAllocator(), bits[i]);
+            if(bits[i])
+                radMemorySpaceFreeAligned(inUserMem ? radMemorySpace_User : radMemorySpace_Cdram, radMemoryGetCurrentAllocator(), bits[i]);
         delete [] bits;
     }
 
@@ -305,5 +359,3 @@ int gxmTexture::GetPalette(pddiColour* palette)
 {
     return 0;
 }
-
-
