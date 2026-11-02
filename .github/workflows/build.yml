@@ -105,13 +105,15 @@ jobs:
       - name: Build
         run: cmake --build build --parallel "$(nproc)"
 
-      # Guard against silently falling back to the desktop-GL-over-vitaGL backend
+      # Guard against silently falling back to the desktop-GL-over-vitaGL backend.
+      # vitaGL symbols (vglInit) are NOT a valid signal: vitasdk's SDL2 links vitaGL itself.
       - name: Check the native GXM backend is linked
         run: |
-          arm-vita-eabi-nm build/code/SRR2 | grep -q gxmDisplay \
+          arm-vita-eabi-nm -C build/code/SRR2 > /tmp/syms.txt
+          grep -q 'gxmDisplay' /tmp/syms.txt \
             || { echo "::error::GXM backend missing from the ELF"; exit 1; }
-          if arm-vita-eabi-nm build/code/SRR2 | grep -q -E ' (vglInit|vglInitExtended)$'; then
-            echo "::error::vitaGL is linked: the build did not use the GXM backend"; exit 1
+          if grep -q 'pglDisplay' /tmp/syms.txt; then
+            echo "::error::GL backend (pglDisplay) is linked: the build did not use GXM"; exit 1
           fi
 
       - name: Check Theora decoder is linked
