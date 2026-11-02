@@ -632,6 +632,27 @@ void Game::Run()
                             hitchMark[3] ? (unsigned)( ( hitchMark[3] - ( hitchMark[2] ? hitchMark[2] : hitchMark[0] ) ) / 1000 ) : 0,
                             hitchMark[3] ? (unsigned)( ( hitchMark[4] - hitchMark[3] ) / 1000 ) : 0 );
         }
+
+        // Gameplay frame-time statistics, printed every 300 gameplay frames: average and worst
+        // frame time and how many frames missed 60 fps (> 20 ms) and 30 fps (> 40 ms).
+        if( hitchContext == CONTEXT_GAMEPLAY )
+        {
+            static radTime64 sumUs = 0, worstUs = 0;
+            static unsigned nFrames = 0, nOver20 = 0, nOver40 = 0;
+            const radTime64 ft = hitchMark[4] - hitchMark[0];
+            sumUs += ft;
+            if( ft > worstUs ) worstUs = ft;
+            if( ft > 20000 ) nOver20++;
+            if( ft > 40000 ) nOver40++;
+            if( ++nFrames >= 300 )
+            {
+                rReleasePrintf( "[fps] last 300 gameplay frames: avg %u.%u ms (%u fps), worst %u ms, >20ms: %u, >40ms: %u\n",
+                                (unsigned)( sumUs / nFrames / 1000 ), (unsigned)( ( sumUs / nFrames / 100 ) % 10 ),
+                                (unsigned)( 1000000 * nFrames / ( sumUs ? sumUs : 1 ) ),
+                                (unsigned)( worstUs / 1000 ), nOver20, nOver40 );
+                sumUs = 0; worstUs = 0; nFrames = 0; nOver20 = 0; nOver40 = 0;
+            }
+        }
 #endif
 
         DEMOPROFILE( g_DemoProfiler.Stop(PROFILE_CHANNEL_ALL); )

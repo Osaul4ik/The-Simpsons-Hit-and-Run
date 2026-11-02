@@ -126,6 +126,9 @@ public:
    virtual bool   DoPreDynaLoad(tName& irGiveItAFuckinName);
    // True if the named dynamic zone is currently in the load lists (used by the zone cache)
    virtual bool   IsDynaLoaded(tName& irGiveItAFuckinName) { return false; }
+   // Zone cache: active=false stops per-frame updates of the zone's animated entities (zone stays loaded),
+   // active=true resumes them. Returns how many entities were toggled.
+   virtual int    SetDynaZoneActive(tName& irGiveItAFuckinName, bool active) { return 0; }
    virtual void   DoPostDynaLoad();
 
    ///////////////////////////////////////////////////////////////////////

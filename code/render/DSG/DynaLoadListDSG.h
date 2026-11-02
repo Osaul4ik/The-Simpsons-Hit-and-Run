@@ -30,7 +30,7 @@
 class DynaLoadListDSG 
 {
 public:
-   DynaLoadListDSG(){}
+   DynaLoadListDSG() : mSuspended(false) {}
    ~DynaLoadListDSG(){}
 
    void ClearAll()
@@ -51,6 +51,7 @@ public:
 
    void ClearAllUse()
    {
+      mSuspended = false;
       mWorldSphereElems.ClearUse();
       mSEntityElems.ClearUse(); 
       mSPhysElems.ClearUse();   
@@ -83,6 +84,10 @@ public:
    }
 
    tName mGiveItAFuckinName;
+
+   // True while the zone sits in the RenderManager zone cache: its animated
+   // entities are taken out of AnimEntityDSGManager so they are not updated every frame.
+   bool mSuspended;
    
    SwapArray<WorldSphereDSG*>            mWorldSphereElems; 
    SwapArray<StaticEntityDSG*>           mSEntityElems; 

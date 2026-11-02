@@ -450,6 +450,13 @@ void RenderManager::ZoneCacheRemove( const char* name )
     {
         if( strcmp( mZoneCache[r], name ) == 0 )
         {
+            // Zone is used again: resume its animated entities.
+            tName n;
+            HeapMgr()->PushHeap( GMA_TEMP );
+            n.SetText( name );
+            HeapMgr()->PopHeap( GMA_TEMP );
+            mpRenderLayers[RenderEnums::LevelSlot]->SetDynaZoneActive( n, true );
+
             for( int k = r; k < mNumZoneCache - 1; k++ )
             {
                 strcpy( mZoneCache[k], mZoneCache[k + 1] );
@@ -530,9 +537,12 @@ bool RenderManager::ZoneCacheDefer( const char* name )
         return false;   // no room even for one: dump right away like before
     }
 
+    // Cached zone sleeps: no per-frame animation updates until it is needed again.
+    int suspended = mpRenderLayers[RenderEnums::LevelSlot]->SetDynaZoneActive( n, false );
+
     strcpy( mZoneCache[mNumZoneCache], name );
     mNumZoneCache++;
-    rReleasePrintf( "[zonecache] deferred dump of %s, cached=%d\n", name, mNumZoneCache );
+    rReleasePrintf( "[zonecache] deferred dump of %s, cached=%d, anim entities suspended=%d\n", name, mNumZoneCache, suspended );
     return true;
 }
 

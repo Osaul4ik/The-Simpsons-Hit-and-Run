@@ -1519,6 +1519,46 @@ bool WorldRenderLayer::IsDynaLoaded(tName& irGiveItAFuckinName)
    return false;
 }
 
+//
+// Zone cache: stop/resume the per-frame update of a loaded zone's animated
+// entities. AnimEntityDSGManager::Update walks every registered entity every
+// frame whether it is visible or not, so a zone kept in memory would otherwise
+// keep costing CPU. The entities stay in the world (spatial tree); only their
+// registration in the manager changes. Mirrors what AddGuts() did at load time.
+//
+int WorldRenderLayer::SetDynaZoneActive(tName& irGiveItAFuckinName, bool active)
+{
+   int toggled = 0;
+   for(int i=0;i<mLoadLists.mUseSize;i++)
+   {
+      if(mLoadLists[i]->mGiveItAFuckinName.GetUID() != irGiveItAFuckinName.GetUID() )
+         continue;
+
+      DynaLoadListDSG* list = mLoadLists[i];
+      if( list->mSuspended == !active )
+         return 0;   // already in the requested state
+      list->mSuspended = !active;
+
+      for(int j=0;j<list->mAnimElems.mUseSize;j++)
+      {
+         AnimEntityDSG* e = list->mAnimElems[j];
+         if( !e->AddToUpdateList() )
+            continue;   // tracked separately (arrows); never registered in the update list
+         if( active ) GetAnimEntityDSGManager()->Add( e );
+         else         GetAnimEntityDSGManager()->Remove( e );
+         toggled++;
+      }
+      for(int j=0;j<list->mAnimCollElems.mUseSize;j++)
+      {
+         if( active ) GetAnimEntityDSGManager()->Add( list->mAnimCollElems[j] );
+         else         GetAnimEntityDSGManager()->Remove( list->mAnimCollElems[j] );
+         toggled++;
+      }
+      return toggled;
+   }
+   return 0;
+}
+
 bool WorldRenderLayer::DoPreDynaLoad(tName& irGiveItAFuckinName)//tUID iUID)
 {
    int i;
