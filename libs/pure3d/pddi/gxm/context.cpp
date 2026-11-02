@@ -153,6 +153,7 @@ gxmContext::gxmContext(gxmDevice* dev, gxmDisplay* disp) : pddiBaseContext((pddi
     memset(streams, 0, sizeof(streams));
     memset(primPool, 0, sizeof(primPool));
     memset(primPoolCount, 0, sizeof(primPoolCount));
+    primPoolBytes = 0;
     primPoolHits = primPoolMisses = midSceneFlushes = statFrames = 0;
     *sceGxmGetNotificationRegion() = 0;
 }
@@ -197,8 +198,8 @@ void gxmContext::BeginFrame()
 #ifdef RAD_LOG
     if(++statFrames >= 900)
     {
-        rReleasePrintf("[gxm] last %u frames: primPool hits=%u misses=%u, mid-scene flushes=%u\n",
-                       statFrames, primPoolHits, primPoolMisses, midSceneFlushes);
+        rReleasePrintf("[gxm] last %u frames: primPool hits=%u misses=%u (pooled %u KB), mid-scene flushes=%u\n",
+                       statFrames, primPoolHits, primPoolMisses, primPoolBytes / 1024, midSceneFlushes);
         statFrames = primPoolHits = primPoolMisses = midSceneFlushes = 0;
     }
 #endif
@@ -648,10 +649,11 @@ gxmPrimBuffer::gxmPrimBuffer(gxmContext* c, pddiPrimType type, unsigned vertexFo
     }
 
     vertexShader = context->vertexProgram->PatchVertexShader(vertexType, stride);
+    stateSize = sceGxmGetPrecomputedDrawSize(vertexShader);
     state = (uint8_t*)radMemorySpaceAllocAligned(
         radMemorySpace_User,
         radMemoryGetCurrentAllocator(),
-        sceGxmGetPrecomputedDrawSize(vertexShader),
+        stateSize,
         16);
     CHK_GXM(sceGxmPrecomputedDrawInit(&precomputed, vertexShader, state));
     const void* streams[] = { buffer, context->dummyVector };
@@ -1043,6 +1045,7 @@ gxmPrimBuffer* gxmContext::AcquirePrimBuffer(pddiPrimType type, unsigned vertexT
         if(buf->Matches(type, vertexType, capacity))
         {
             primPool[b][i] = primPool[b][--primPoolCount[b]];
+            primPoolBytes -= buf->PoolBytes();
             ++primPoolHits;
             return buf;
         }
@@ -1059,9 +1062,10 @@ void gxmContext::RecyclePrimBuffer(pddiPrimBuffer* buffer)
     if(buf->Poolable() && buf->IsUnshared())
     {
         const unsigned b = buf->PoolBucket();
-        if(primPoolCount[b] < PRIM_POOL_DEPTH)
+        if(primPoolCount[b] < PRIM_POOL_DEPTH && primPoolBytes + buf->PoolBytes() <= PRIM_POOL_MAX_BYTES)
         {
             primPool[b][primPoolCount[b]++] = buf;
+            primPoolBytes += buf->PoolBytes();
             return;
         }
     }
@@ -1079,6 +1083,7 @@ void gxmContext::DrainPrimPool()
             buf->Release();
         }
     }
+    primPoolBytes = 0;
 }
 
 gxmProgram* gxmContext::GetFragmentProgram(const gxmTextureEnv* texEnv)

@@ -14,7 +14,9 @@
 
 // Recycling of immediate-mode prim buffers (see gxmContext::AcquirePrimBuffer).
 #define PRIM_POOL_BUCKETS   64
-#define PRIM_POOL_DEPTH     4
+#define PRIM_POOL_DEPTH     64        // per bucket: a frame issues hundreds of same-sized draws and buffers
+                                      // only come back once the GPU has finished with them
+#define PRIM_POOL_MAX_BYTES (4 * 1024 * 1024)   // total memory the pool may hold, across all buckets
 #define PRIM_POOL_MAX_VERTS 512   // only small buffers are pooled, to bound the memory held
 #define PRIM_POOL_MIN_VERTS 8     // buffer capacities are rounded up to a power of two >= this
 
@@ -170,6 +172,7 @@ protected:
     // done for every BeginPrims() call.
     class gxmPrimBuffer* primPool[PRIM_POOL_BUCKETS][PRIM_POOL_DEPTH];
     unsigned char primPoolCount[PRIM_POOL_BUCKETS];
+    unsigned primPoolBytes;     // memory currently held by pooled buffers
     unsigned primPoolHits, primPoolMisses, midSceneFlushes, statFrames;
 
     static int PrimPoolCapacity(pddiPrimType type, int nVertex);
@@ -228,6 +231,7 @@ public:
         return (k ^ (k >> 7) ^ (k >> 15)) % PRIM_POOL_BUCKETS;
     }
     unsigned PoolBucket() const { return PoolBucket(primType, vertexType, allocated); }
+    unsigned PoolBytes() const { return mem + indexCount * sizeof(unsigned short) + stateSize; }
 
 protected:
     friend class gxmPrimBufferStream;
@@ -260,6 +264,7 @@ protected:
     unsigned char* state;
 
     unsigned mem;
+    unsigned stateSize;     // size of the precomputed draw state allocation
 };
     
 #endif
