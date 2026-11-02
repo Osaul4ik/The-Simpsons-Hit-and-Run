@@ -93,15 +93,24 @@
 // Defined in main/win32main.cpp; logs a milestone plus the memory state (RAD_LOG Vita builds only).
 #if defined( RAD_LOG ) && defined( RAD_VITA )
 void LogProgress( const char* stage );
+void LogProgressBrief( const char* stage );
 #else
 #define LogProgress( stage ) ((void)0)
+#define LogProgressBrief( stage ) ((void)0)
 #endif
 
 // Defined in main/win32main.cpp: true while there is memory to keep one more far zone resident.
 bool ZoneCacheHasHeadroom();
 
-#ifndef RAD_VITA_ZONE_CACHE_MAX_ZONES
-#define RAD_VITA_ZONE_CACHE_MAX_ZONES 16   // max deferred (resident, not in use) zones; 0 disables the cache
+// Max deferred (resident, not in use) zones; 0 disables the cache. Runtime value from win32main.cpp
+// (default RAD_VITA_ZONE_CACHE_MAX_ZONES = 6, override with "zonecache=N" in ux0:data/simpsons/vita.cfg).
+// The log of a full play session never held more than 4 zones, and the zone count did not change the
+// frame time, so a small cap is enough: it only has to cover the zones around the player.
+#ifdef RAD_VITA
+extern int g_vitaZoneCacheMaxZones;
+#define ZONE_CACHE_LIMIT g_vitaZoneCacheMaxZones
+#else
+#define ZONE_CACHE_LIMIT 0
 #endif
 
 // Stall timers (Vita + RAD_LOG): log a step of zone dump/load completion that takes too long on the main thread.
@@ -418,7 +427,7 @@ void RenderManager::MunchDelList(unsigned us)
 //   - FIFO over RAD_VITA_ZONE_CACHE_MAX_ZONES, or no memory headroom
 //     (ZoneCacheHasHeadroom): the oldest zone is really dumped.
 // Interior ZELs flush the cache first, so interiors are unchanged.
-// Build with -DRAD_VITA_ZONE_CACHE_MAX_ZONES=0 to switch it off.
+// Switch it off with "zonecache=0" in ux0:data/simpsons/vita.cfg (or -DRAD_VITA_ZONE_CACHE_MAX_ZONES=0).
 //
 //========================================================================
 
@@ -537,14 +546,14 @@ bool RenderManager::ZoneCacheDefer( const char* name )
 
     // Make room: over the cap, or low on memory.
     while( mNumZoneCache > 0 &&
-           ( mNumZoneCache >= RAD_VITA_ZONE_CACHE_MAX_ZONES ||
+           ( mNumZoneCache >= ZONE_CACHE_LIMIT ||
              mNumZoneCache >= ZONE_CACHE_SLOTS ||
              !ZoneCacheHasHeadroom() ) )
     {
         ZoneCacheEvictOldest();
     }
 
-    if( RAD_VITA_ZONE_CACHE_MAX_ZONES <= 0 || !ZoneCacheHasHeadroom() )
+    if( ZONE_CACHE_LIMIT <= 0 || !ZoneCacheHasHeadroom() )
     {
         return false;   // no room even for one: dump right away like before
     }
@@ -1230,7 +1239,7 @@ ZSTALL_END( postT0, "zone-complete: DoPostDynaLoad", 10 );
         if( i<mpZEL->GetNumLoadZones() && (msLayer & RenderEnums::LevelSlot) )
         {
             rReleasePrintf("Zone Loading Ended: %s\n",mpZEL->GetLoadZone(i));
-            LogProgress( "zone loaded" );
+            LogProgressBrief( "zone loaded" );
             //HeapMgr()->DumpHeapStats(true);
             tUID tempUID = tName::MakeUID(mpZEL->GetLoadZone(i));
 ZSTALL_BEGIN( namedT0 );
@@ -1398,7 +1407,7 @@ ZSTALL_BEGIN( endT0 );
                     GetEventManager()->TriggerEvent( EVENT_ALL_DYNAMIC_ZONE_END );
 ZSTALL_END( endT0, "zone-complete: EVENT_ALL_DYNAMIC_ZONE_END", 10 );
                     rReleasePrintf("ZoneLoadingEnded Verified\n");
-                    LogProgress( "all zones loaded" );
+                    LogProgressBrief( "all zones loaded" );
                     mbDynaLoading = false;
                     AllWrappers::GetInstance()->mLoader( AllWrappers::msBillboard     ).ModRegdListener( this, RenderEnums::IgnoreGuts );         
                 }
@@ -1731,7 +1740,7 @@ BEGIN_PROFILE( "Zone/Int Dump" );
             //
             bool zoneCacheOn = false;
 #ifdef RAD_VITA
-            if( RAD_VITA_ZONE_CACHE_MAX_ZONES > 0 )
+            if( ZONE_CACHE_LIMIT > 0 )
             {
                 for(i=0; i<mpZEL->GetNumLoadZones(); i++)
                 {
@@ -1780,7 +1789,7 @@ END_PROFILE( "Zone/Int Dump" );
 #ifdef RAD_VITA
             // Every zone this ZEL still has to load needs a free load list. Cached zones occupy lists,
             // so evict the oldest ones until the loads fit.
-            if( RAD_VITA_ZONE_CACHE_MAX_ZONES > 0 )
+            if( ZONE_CACHE_LIMIT > 0 )
             {
                 int listsNeeded = 0;
                 for(i=0; i<mpZEL->GetNumLoadZones(); i++)
@@ -1879,7 +1888,7 @@ ZSTALL_BEGIN( endT0 );
                     GetEventManager()->TriggerEvent( EVENT_ALL_DYNAMIC_ZONE_END );
 ZSTALL_END( endT0, "zone-complete: EVENT_ALL_DYNAMIC_ZONE_END", 10 );
                     rReleasePrintf("ZoneLoadingEnded Verified\n");
-                    LogProgress( "all zones loaded" );
+                    LogProgressBrief( "all zones loaded" );
                     mbDynaLoading = false;
                     AllWrappers::GetInstance()->mLoader( AllWrappers::msBillboard     ).ModRegdListener( this, RenderEnums::IgnoreGuts );         
                 }

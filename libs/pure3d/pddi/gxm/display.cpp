@@ -18,6 +18,9 @@
 #include <math.h>
 #include <vitasdk.h>
 
+// 1 = 60 fps, 2 = 30 fps; defined in code/main/win32main.cpp (set from vita.cfg)
+extern int g_gxmVblankInterval;
+
 // Enable the following define to allow Razor HUD.
 //#define ENABLE_RAZOR_HUD
 
@@ -535,6 +538,16 @@ void gxmDisplay::displayCallback(const void* callbackData)
     CHK_GXM(sceDisplaySetFrameBuf(&framebuf, SCE_DISPLAY_SETBUF_NEXTFRAME));
 
     // Block this callback until the swap has occurred and the old buffer
-    // is no longer displayed
-    CHK_GXM(sceDisplayWaitVblankStart());
+    // is no longer displayed. Waiting for 2 vblanks makes every frame stay on
+    // screen for 33.3 ms: a locked 30 fps (the rate the game was made for) instead
+    // of 60/45/30 jumping when the frame takes 17-25 ms at 333 MHz. The interval
+    // is g_gxmVblankInterval (win32main.cpp; "fps=60" in vita.cfg selects 1).
+    if(g_gxmVblankInterval > 1)
+    {
+        CHK_GXM(sceDisplayWaitVblankStartMulti((unsigned int)g_gxmVblankInterval));
+    }
+    else
+    {
+        CHK_GXM(sceDisplayWaitVblankStart());
+    }
 }

@@ -30,6 +30,7 @@
 #include <malloc.h>
 #include <psp2/kernel/clib.h>
 #include <psp2/kernel/sysmem.h>
+#include <psp2/kernel/threadmgr.h>
 #include <radmemory.hpp>
 unsigned int sceLibcHeapSize = 16 * 1024 * 1024;
 
@@ -43,7 +44,7 @@ unsigned int sceLibcHeapSize = 16 * 1024 * 1024;
 // there or the screen stays black. The GXM backend does not do that: its memory is
 // the radMemorySpace user and CDRAM blocks (libs/radcore/.../memoryspacewin32.cpp).
 #ifndef RAD_VITA_HEAP_MB
-#define RAD_VITA_HEAP_MB 192
+#define RAD_VITA_HEAP_MB 128
 #endif
 unsigned int _newlib_heap_size_user = RAD_VITA_HEAP_MB * 1024 * 1024;
 #endif
@@ -66,19 +67,196 @@ static void ProcessCommandLineArguments( int argc, char *argv[] );
 
 static void ProcessCommandLineArgumentsFromFile();
 
+//=============================================================================
+// Runtime settings (Vita). Read from ux0:data/simpsons/vita.cfg, one "key=value"
+// per line, so they can be tuned without rebuilding:
+//     fps=30            30 (default, 2 vblanks per frame) or 60 (1 vblank)
+//     zonecache=6       max zones kept resident after leaving them (0 = off)
+// Missing file or key = compile-time default.
+//=============================================================================
+#ifdef RAD_VITA
+#ifndef RAD_VITA_ZONE_CACHE_MAX_ZONES
+#define RAD_VITA_ZONE_CACHE_MAX_ZONES 6
+#endif
+#ifndef RAD_VITA_VBLANK_INTERVAL
+#define RAD_VITA_VBLANK_INTERVAL 2        // 2 = 30 fps (right for 333 MHz), 1 = 60 fps
+#endif
+int g_vitaZoneCacheMaxZones = RAD_VITA_ZONE_CACHE_MAX_ZONES;   // read by RenderManager
+int g_gxmVblankInterval     = RAD_VITA_VBLANK_INTERVAL;        // read by gxmDisplay::displayCallback
+
+static void LoadVitaConfig()
+{
+    FILE* f = fopen( "ux0:data/simpsons/vita.cfg", "r" );
+    if( f == NULL )
+    {
+        return;
+    }
+    char line[96];
+    while( fgets( line, sizeof( line ), f ) != NULL )
+    {
+        int v = 0;
+        if( sscanf( line, "fps=%d", &v ) == 1 )
+        {
+            g_gxmVblankInterval = ( v >= 60 ) ? 1 : 2;
+        }
+        else if( sscanf( line, "zonecache=%d", &v ) == 1 )
+        {
+            g_vitaZoneCacheMaxZones = ( v < 0 ) ? 0 : ( v > 32 ? 32 : v );
+        }
+    }
+    fclose( f );
+}
+#endif
+
+//=============================================================================
+// Log output.
+//
+// The old code did fprintf + fflush (a synchronous write to the memory card,
+// 5-8 ms each) plus sceClibPrintf for every line, on the game thread. One
+// "Encountered Dynamic Zone" block is 15-30 lines, so it froze the game for
+// 100-250 ms: most of the [hitch] ... flow 130-270 ms lines in log.txt were the
+// logging itself. Now, after boot, lines go to a ring buffer and a low-priority
+// thread writes them to the file every 200 ms. During boot lines are still
+// written synchronously, so a hang or crash at startup is not lost.
+//=============================================================================
 #if defined( RAD_VITA ) && defined( RAD_LOG )
-static FILE* s_pLogFile = NULL;
+#ifndef RAD_VITA_LOG_CLIBPRINTF
+#define RAD_VITA_LOG_CLIBPRINTF 0         // 1 = also echo to sceClibPrintf (slow, only with a debugger attached)
+#endif
+#define LOG_RING_SIZE   ( 256 * 1024 )
+#define LOG_CHUNK_SIZE  ( 32 * 1024 )
+
+static FILE*           s_pLogFile   = NULL;
+static SceUID          s_logMutex   = -1;
+static SceUID          s_logThread  = -1;
+static volatile int    s_logAsync   = 0;     // 0 = synchronous (boot), 1 = ring buffer + thread
+static volatile int    s_logQuit    = 0;
+static char            s_logRing[LOG_RING_SIZE];
+static unsigned        s_logHead    = 0;     // write position (monotonic)
+static unsigned        s_logTail    = 0;     // read position (monotonic)
+static unsigned        s_logDropped = 0;
+static char            s_logChunk[LOG_CHUNK_SIZE];
+
+static unsigned LogDrain( bool flush )
+{
+    unsigned n = 0;
+    sceKernelLockMutex( s_logMutex, 1, NULL );
+    unsigned avail = s_logHead - s_logTail;
+    if( avail > LOG_CHUNK_SIZE ) avail = LOG_CHUNK_SIZE;
+    for( n = 0; n < avail; n++ )
+    {
+        s_logChunk[n] = s_logRing[ ( s_logTail + n ) % LOG_RING_SIZE ];
+    }
+    s_logTail += n;
+    unsigned dropped = s_logDropped;
+    s_logDropped = 0;
+    sceKernelUnlockMutex( s_logMutex, 1 );
+
+    if( s_pLogFile != NULL )
+    {
+        if( dropped != 0 )
+        {
+            fprintf( s_pLogFile, "[log] %u bytes dropped (ring buffer full)\n", dropped );
+        }
+        if( n != 0 )
+        {
+            fwrite( s_logChunk, 1, n, s_pLogFile );
+        }
+        if( flush && ( n != 0 || dropped != 0 ) )
+        {
+            fflush( s_pLogFile );
+        }
+    }
+    return n;
+}
+
+static int LogThreadMain( SceSize args, void* argp )
+{
+    while( !s_logQuit )
+    {
+        sceKernelDelayThread( 200 * 1000 );
+        while( LogDrain( true ) == LOG_CHUNK_SIZE ) {}
+    }
+    return 0;
+}
+
+static void LogStartAsync()
+{
+    if( s_pLogFile == NULL || s_logAsync )
+    {
+        return;
+    }
+    if( s_logMutex < 0 )
+    {
+        s_logMutex = sceKernelCreateMutex( "srr2_log", 0, 0, NULL );
+    }
+#ifndef SCE_KERNEL_LOWEST_PRIORITY_USER
+#define SCE_KERNEL_LOWEST_PRIORITY_USER 191
+#endif
+    if( s_logMutex >= 0 && s_logThread < 0 )
+    {
+        s_logThread = sceKernelCreateThread( "srr2_log", LogThreadMain, SCE_KERNEL_LOWEST_PRIORITY_USER, 64 * 1024, 0, 0, NULL );
+        if( s_logThread >= 0 )
+        {
+            sceKernelStartThread( s_logThread, 0, NULL );
+        }
+    }
+    if( s_logMutex >= 0 && s_logThread >= 0 )
+    {
+        s_logAsync = 1;
+    }
+}
+
+static void LogStopAsync()
+{
+    if( s_logAsync )
+    {
+        s_logAsync = 0;
+        s_logQuit = 1;
+        sceKernelWaitThreadEnd( s_logThread, NULL, NULL );
+        s_logThread = -1;
+        LogDrain( true );
+    }
+    if( s_pLogFile != NULL )
+    {
+        fflush( s_pLogFile );
+    }
+}
 #endif
 
 static void LogOutputFunction( void *userdata, int category, SDL_LogPriority priority, const char *message )
 {
 #ifdef RAD_VITA
+#if !defined( RAD_LOG ) || RAD_VITA_LOG_CLIBPRINTF
     sceClibPrintf( "%s\n", message );
+#endif
 #ifdef RAD_LOG
     if( s_pLogFile != NULL )
     {
-        fprintf( s_pLogFile, "%s\n", message );
-        fflush( s_pLogFile );
+        if( !s_logAsync )
+        {
+            fprintf( s_pLogFile, "%s\n", message );
+            fflush( s_pLogFile );
+        }
+        else
+        {
+            const unsigned len = (unsigned)strlen( message );
+            sceKernelLockMutex( s_logMutex, 1, NULL );
+            if( ( s_logHead - s_logTail ) + len + 1 <= LOG_RING_SIZE )
+            {
+                for( unsigned i = 0; i < len; i++ )
+                {
+                    s_logRing[ ( s_logHead + i ) % LOG_RING_SIZE ] = message[i];
+                }
+                s_logRing[ ( s_logHead + len ) % LOG_RING_SIZE ] = '\n';
+                s_logHead += len + 1;
+            }
+            else
+            {
+                s_logDropped += len + 1;
+            }
+            sceKernelUnlockMutex( s_logMutex, 1 );
+        }
     }
 #endif
 #else
@@ -149,8 +327,25 @@ void LogProgress( const char* stage )
 #endif
 #endif
 }
+
+// One-line variant for use during gameplay (after every zone). LogProgress walks the whole
+// newlib heap (mallinfo) and prints 6 lines; that is fine at boot and every 900 frames, but not
+// after every streamed zone.
+void LogProgressBrief( const char* stage )
+{
+    rReleasePrintf( "[boot] %s\n", stage );
+#ifdef RAD_VITA
+    SceKernelFreeMemorySizeInfo info;
+    info.size = sizeof( info );
+    if( sceKernelGetFreeMemorySize( &info ) >= 0 )
+    {
+        rReleasePrintf( "[mem] free user=%d KB cdram=%d KB\n", info.size_user / 1024, info.size_cdram / 1024 );
+    }
+#endif
+}
 #else
 #define LogProgress( stage ) ((void)0)
+#define LogProgressBrief( stage ) ((void)0)
 #endif
 
 //=============================================================================
@@ -168,7 +363,7 @@ void LogProgress( const char* stage )
 //=============================================================================
 #ifdef RAD_VITA
 #ifndef RAD_VITA_ZONE_CACHE_MAX_MALLOC_KB
-#define RAD_VITA_ZONE_CACHE_MAX_MALLOC_KB ( 140 * 1024 )
+#define RAD_VITA_ZONE_CACHE_MAX_MALLOC_KB ( 96 * 1024 )
 #endif
 #ifndef RAD_VITA_ZONE_CACHE_MIN_CDRAM_FREE_KB
 #define RAD_VITA_ZONE_CACHE_MIN_CDRAM_FREE_KB ( 24 * 1024 )
@@ -229,6 +424,7 @@ extern "C" int main( int argc, char *argv[] )
 #endif
 #ifdef RAD_VITA
 	chdir( "ux0:data/simpsons" );
+    LoadVitaConfig();
 #ifdef RAD_LOG
     s_pLogFile = fopen( "ux0:data/simpsons/log.txt", "w" );
     rReleasePrintf( "[boot] newlib heap requested: %d MB\n", RAD_VITA_HEAP_MB );
@@ -314,6 +510,12 @@ extern "C" int main( int argc, char *argv[] )
     LogProgress( "game created, initializing" );
     pGame->Initialize();
     LogProgress( "game initialized" );
+#if defined( RAD_VITA ) && defined( RAD_LOG )
+    // boot is over: from here on log lines are buffered and written by a background thread
+    rReleasePrintf( "[boot] vblank interval=%d (%d fps), zone cache max=%d\n",
+                    g_gxmVblankInterval, 60 / g_gxmVblankInterval, g_vitaZoneCacheMaxZones );
+    LogStartAsync();
+#endif
 
     HeapMgr()->PopHeap (GMA_PERSISTENT);
 
@@ -322,6 +524,9 @@ extern "C" int main( int argc, char *argv[] )
     //
     pGame->Run();
     LogProgress( "game run finished" );
+#if defined( RAD_VITA ) && defined( RAD_LOG )
+    LogStopAsync();
+#endif
 
     //
     // Terminate the game (this frees all resources allocated by the game).
