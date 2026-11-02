@@ -25,6 +25,18 @@ static gxmDevice gblDevice;
 
 char libName [] = "GXM";
 
+#if defined(RAD_LOG) && !defined(PDDI_USE_ASSERTS)
+#include <raddebug.hpp>
+bool pddiGxmLog(const char* file, int line, unsigned int err, const char* cond)
+{
+    if(err != SCE_OK)
+    {
+        rReleasePrintf("[gxm] FAILED 0x%08x at %s:%d: %s\n", err, file, line, cond ? cond : "?");
+    }
+    return err == SCE_OK;
+}
+#endif
+
 #ifdef PDDI_USE_ASSERTS
 #include <raddebug.hpp>
 const char* pddiGxmErrorString(unsigned int err)

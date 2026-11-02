@@ -9,6 +9,9 @@
 #include <pddi/base/debug.hpp>
 #include <SDL.h>
 #include <radmemory.hpp>
+#ifdef RAD_LOG
+#include <raddebug.hpp>
+#endif
 
 #include <stdio.h>
 #include <string.h>
@@ -168,6 +171,10 @@ bool gxmDisplay::InitDisplay(const pddiDisplayInit* init)
 
     // Trigger a capture after 100 frames.
     sceRazorGpuCaptureSetTrigger(10000, "ux0:data/srr2.sgx");
+#endif
+
+#ifdef RAD_LOG
+    rReleasePrintf("[gxm] InitDisplay %dx%d msaa=%d\n", (int)winWidth, (int)winHeight, (int)msaaMode);
 #endif
 
     // set up parameters and initialize
@@ -451,4 +458,3 @@ void gxmDisplay::displayCallback(const void* callbackData)
     // is no longer displayed
     CHK_GXM(sceDisplayWaitVblankStart());
 }
-
