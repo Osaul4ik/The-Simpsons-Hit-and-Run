@@ -254,7 +254,8 @@ void gxmContext::DrawSync()
     {
         return;
     }
-    CHK_GXM(sceGxmFinish(context));
+    // sceGxmFinish() returns void in the SDK used by CI, so it cannot go through CHK_GXM.
+    sceGxmFinish(context);
     CHK_GXM(sceGxmDisplayQueueFinish());
 }
 
