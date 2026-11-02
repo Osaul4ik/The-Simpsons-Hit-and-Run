@@ -106,6 +106,7 @@ gxmMat::gxmMat(gxmContext* c)
     valid = false;
     program = nullptr;
     shader = nullptr;
+    appliedContextWriteMask = PDDI_WRITE_ALL;
 
     for(int i = 0; i < gxmMaxPasses; i++)
     {
@@ -284,10 +285,49 @@ int gxmMat::CountDevPasses(void)
     return 1;
 }
 
+// pddi write mask bits are passed to GXM as-is (SceGxmBlendInfo::colorMask)
+static_assert(PDDI_WRITE_NONE  == SCE_GXM_COLOR_MASK_NONE, "PDDI/GXM colour mask mismatch");
+static_assert(PDDI_WRITE_ALPHA == SCE_GXM_COLOR_MASK_A,    "PDDI/GXM colour mask mismatch");
+static_assert(PDDI_WRITE_RED   == SCE_GXM_COLOR_MASK_R,    "PDDI/GXM colour mask mismatch");
+static_assert(PDDI_WRITE_GREEN == SCE_GXM_COLOR_MASK_G,    "PDDI/GXM colour mask mismatch");
+static_assert(PDDI_WRITE_BLUE  == SCE_GXM_COLOR_MASK_B,    "PDDI/GXM colour mask mismatch");
+static_assert(PDDI_WRITE_ALL   == SCE_GXM_COLOR_MASK_ALL,  "PDDI/GXM colour mask mismatch");
+
+// GXM has no global colour mask (glColorMask): it is part of the blend state baked into the
+// fragment program. The material's own mask (PDDI_SP_COLOURWRITE) is therefore combined with
+// the context's mask (pddiRenderContext::SetColourWrite), e.g. the depth-only HUD map "hole"
+// and lens flare occlusion tests. Programs are cached per blend state by gxmProgram, so
+// switching the mask costs a map lookup, not a new patch.
+void gxmMat::SelectFragmentShader(int contextWriteMask)
+{
+    const int i = 0;
+    const int writeMask = texEnv[i].writeMask & contextWriteMask;
+
+    if(texEnv[i].alphaBlendMode == PDDI_BLEND_NONE && writeMask == PDDI_WRITE_ALL)
+    {
+        shader = program->PatchFragmentShader(nullptr, context->GetDisplay()->GetMSAAMode());
+    }
+    else
+    {
+        SceGxmBlendInfo blend = {
+            (uint8_t)writeMask,
+            alphaBlendFunc[texEnv[i].alphaBlendMode],
+            alphaBlendFunc[texEnv[i].alphaBlendMode],
+            alphaBlendTable[texEnv[i].alphaBlendMode][0],
+            alphaBlendTable[texEnv[i].alphaBlendMode][1],
+            alphaBlendTable[texEnv[i].alphaBlendMode][0],
+            alphaBlendTable[texEnv[i].alphaBlendMode][1]
+        };
+        shader = program->PatchFragmentShader(&blend, context->GetDisplay()->GetMSAAMode());
+    }
+    appliedContextWriteMask = contextWriteMask;
+}
+
 void gxmMat::SetDevPass(unsigned pass)
 {
     int i = 0;
     SceGxmContext* gxm = context->GetDisplay()->GetGXMContext();
+    const int contextWriteMask = context->GetColourWriteMask();
 
     if(!valid)
     {
@@ -296,24 +336,12 @@ void gxmMat::SetDevPass(unsigned pass)
         program = context->GetFragmentProgram(&texEnv[i]);
         program->AddRef();
 
-        if(texEnv[i].alphaBlendMode == PDDI_BLEND_NONE && texEnv[i].writeMask == PDDI_WRITE_ALL)
-        {
-            shader = program->PatchFragmentShader(nullptr, context->GetDisplay()->GetMSAAMode());
-        }
-        else
-        {
-            SceGxmBlendInfo blend = {
-                (uint8_t)texEnv[i].writeMask,
-                alphaBlendFunc[texEnv[i].alphaBlendMode],
-                alphaBlendFunc[texEnv[i].alphaBlendMode],
-                alphaBlendTable[texEnv[i].alphaBlendMode][0],
-                alphaBlendTable[texEnv[i].alphaBlendMode][1],
-                alphaBlendTable[texEnv[i].alphaBlendMode][0],
-                alphaBlendTable[texEnv[i].alphaBlendMode][1]
-            };
-            shader = program->PatchFragmentShader(&blend, context->GetDisplay()->GetMSAAMode());
-        }
+        SelectFragmentShader(contextWriteMask);
         valid = true;
+    }
+    else if(contextWriteMask != appliedContextWriteMask)
+    {
+        SelectFragmentShader(contextWriteMask);
     }
 
     sceGxmSetFragmentProgram(gxm, shader);
@@ -336,5 +364,16 @@ void gxmMat::PreRender()
 {
     int i = 0;
     if(program)
+    {
+        // SetMaterial() only calls SetDevPass() when the material changes, but PreRender() runs
+        // for every draw: pick up a colour write mask change made while this material stays current.
+        const int contextWriteMask = context->GetColourWriteMask();
+        if(contextWriteMask != appliedContextWriteMask)
+        {
+            SelectFragmentShader(contextWriteMask);
+            sceGxmSetFragmentProgram(context->GetDisplay()->GetGXMContext(), shader);
+        }
+
         context->SetTextureEnvironment(&texEnv[i], program);
+    }
 }

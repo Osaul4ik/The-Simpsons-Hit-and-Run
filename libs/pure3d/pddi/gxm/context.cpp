@@ -72,6 +72,8 @@ gxmContext::gxmContext(gxmDevice* dev, gxmDisplay* disp) : pddiBaseContext((pddi
     display = disp;
     context = display->GetGXMContext();
     vertexShader = nullptr;
+    // DefaultState() below syncs the scissor, which looks at inScene
+    inScene = false;
 
     device->AddRef();
     display->AddRef();
@@ -151,7 +153,6 @@ gxmContext::gxmContext(gxmDevice* dev, gxmDisplay* disp) : pddiBaseContext((pddi
     clearShader->AddRef();
     clearShader->SetInt(PDDI_SP_COLOURWRITE, PDDI_WRITE_NONE);
 
-    inScene = false;
     streamsTail = 0;
     streamsHead = SceGxmNotification{ sceGxmGetNotificationRegion() };
     memset(streams, 0, sizeof(streams));
@@ -230,6 +231,9 @@ void gxmContext::BeginFrame()
 
         SyncState(0xffffffff);
     }
+
+    // a new scene starts with the region clip of the last SetScissor() call
+    ApplyScissor();
 
     projection.Identity();
 }
@@ -344,7 +348,40 @@ void gxmContext::LoadHardwareMatrix(pddiMatrixType id)
 void gxmContext::SetScissor(pddiRect* rect)
 {
     pddiBaseContext::SetScissor(rect);
-    // TODO
+    ApplyScissor();
+}
+
+// The scissor rect is in render target pixels, origin top-left, right/bottom exclusive (same
+// convention the GL backend feeds to glScissor). GXM expresses it as a region clip with an
+// inclusive max corner. A rect that covers the whole target turns the clip off, so the common
+// full-screen case adds no per-tile clipping work.
+void gxmContext::ApplyScissor()
+{
+    if(!inScene)
+        return;
+
+    const int width = display->GetWidth();
+    const int height = display->GetHeight();
+    const pddiRect& r = state.viewState->scissor;
+
+    const int left   = r.left   < 0 ? 0 : r.left;
+    const int top    = r.top    < 0 ? 0 : r.top;
+    const int right  = r.right  > width  ? width  : r.right;
+    const int bottom = r.bottom > height ? height : r.bottom;
+
+    if(left <= 0 && top <= 0 && right >= width && bottom >= height)
+    {
+        sceGxmSetRegionClip(context, SCE_GXM_REGION_CLIP_NONE, 0, 0, width - 1, height - 1);
+    }
+    else if(right <= left || bottom <= top)
+    {
+        // empty rect: nothing may be drawn
+        sceGxmSetRegionClip(context, SCE_GXM_REGION_CLIP_ALL, 0, 0, 0, 0);
+    }
+    else
+    {
+        sceGxmSetRegionClip(context, SCE_GXM_REGION_CLIP_OUTSIDE, left, top, right - 1, bottom - 1);
+    }
 }
 
 class gxmPrimStream : public pddiPrimStream
@@ -844,7 +881,17 @@ SceGxmDepthFunc compTable[8] = {
 void gxmContext::SetColourWrite(bool red, bool green, bool blue, bool alpha)
 {
     pddiBaseContext::SetColourWrite(red, green, blue, alpha);
-    // NOTE: Colour write mask is handled in the material instead
+    // GXM has no global colour mask. The base class keeps the state and gxmMat folds it into
+    // the blend state of the fragment program it selects (gxmMat::SelectFragmentShader).
+}
+
+int gxmContext::GetColourWriteMask() const
+{
+    const pddiRenderState* rs = state.renderState;
+    return (rs->redWrite   ? PDDI_WRITE_RED   : 0) |
+           (rs->greenWrite ? PDDI_WRITE_GREEN : 0) |
+           (rs->blueWrite  ? PDDI_WRITE_BLUE  : 0) |
+           (rs->alphaWrite ? PDDI_WRITE_ALPHA : 0);
 }
 
 void gxmContext::EnableZBuffer(bool enable)

@@ -75,6 +75,10 @@ public :
     // colour buffer control
     void SetColourWrite( bool red, bool green, bool blue, bool alpha );
 
+    // Current colour write mask as PDDI_WRITE_* bits. GXM bakes the mask into the fragment
+    // program's blend state, so gxmMat combines this with its own mask when it picks a program.
+    int GetColourWriteMask() const;
+
     // z-buffer control
     void EnableZBuffer(bool enable);
     void SetZCompare(pddiCompareMode compareMode);
@@ -122,6 +126,10 @@ protected:
 
     void SetVertexShader(SceGxmVertexProgram* vert);
     void FlushVertexStreams();
+
+    // Programs the hardware region clip from the current scissor rect. Only valid inside a
+    // scene; BeginFrame() re-applies it because the scissor can be set between scenes.
+    void ApplyScissor();
 
     static void* patcherHostAlloc(void* userData, uint32_t size);
     static void patcherHostFree(void* userData, void* mem);

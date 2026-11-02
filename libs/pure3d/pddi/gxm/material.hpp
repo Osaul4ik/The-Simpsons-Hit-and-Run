@@ -93,13 +93,17 @@ public:
     void PreRender(void);
 
 private:
+    // Picks the fragment program variant for texEnv's own write mask combined with the
+    // context-wide colour write mask (see gxmContext::GetColourWriteMask).
+    void SelectFragmentShader(int contextWriteMask);
+
     gxmContext* context;
     int pass;
     bool valid;
     gxmProgram* program;
     SceGxmFragmentProgram* shader;
+    int appliedContextWriteMask;    // context mask 'shader' was built for
     gxmTextureEnv texEnv[gxmMaxPasses];
 };
 
 #endif
-
