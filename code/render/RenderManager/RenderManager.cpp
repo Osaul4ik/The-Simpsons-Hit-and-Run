@@ -499,6 +499,18 @@ void RenderManager::ZoneCacheFlush()
     }
 }
 
+// The level layer owns a fixed number of load lists, one per resident zone (cached zones included).
+// Really dump the oldest cached zones until 'listsNeeded' lists are free, otherwise loading the next
+// zone would run past the end of the array.
+void RenderManager::ZoneCacheMakeRoom( int listsNeeded )
+{
+    while( mNumZoneCache > 0 &&
+           mpRenderLayers[RenderEnums::LevelSlot]->GetFreeDynaLoadLists() < listsNeeded )
+    {
+        ZoneCacheEvictOldest();
+    }
+}
+
 // Returns true if the dump of this zone was deferred (zone kept resident),
 // false if the caller must dump it now.
 bool RenderManager::ZoneCacheDefer( const char* name )
@@ -1764,6 +1776,26 @@ END_PROFILE( "Dump Zones" );
             //MunchDelList(50);
 
 END_PROFILE( "Zone/Int Dump" );
+
+#ifdef RAD_VITA
+            // Every zone this ZEL still has to load needs a free load list. Cached zones occupy lists,
+            // so evict the oldest ones until the loads fit.
+            if( RAD_VITA_ZONE_CACHE_MAX_ZONES > 0 )
+            {
+                int listsNeeded = 0;
+                for(i=0; i<mpZEL->GetNumLoadZones(); i++)
+                {
+                    HeapMgr()->PushHeap (GMA_TEMP);
+                    GiveItAFuckinName.SetText(mpZEL->GetLoadZone(i));
+                    HeapMgr()->PopHeap ( GMA_TEMP );
+                    if( !mpRenderLayers[RenderEnums::LevelSlot]->IsDynaLoaded(GiveItAFuckinName) )
+                    {
+                        listsNeeded++;
+                    }
+                }
+                ZoneCacheMakeRoom( listsNeeded );
+            }
+#endif
 
             //////////////////////////////////////////////////////////////////////////
             // Find a Zone to load

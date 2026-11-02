@@ -129,6 +129,9 @@ public:
    // Zone cache: active=false stops per-frame updates of the zone's animated entities (zone stays loaded),
    // active=true resumes them. Returns how many entities were toggled.
    virtual int    SetDynaZoneActive(tName& irGiveItAFuckinName, bool active) { return 0; }
+   // How many more dynamic zones can be loaded before the layer runs out of load lists. A zone kept
+   // resident by the zone cache occupies a load list just like an active one (used by the zone cache).
+   virtual int    GetFreeDynaLoadLists() { return 0x7fffffff; }
    virtual void   DoPostDynaLoad();
 
    ///////////////////////////////////////////////////////////////////////

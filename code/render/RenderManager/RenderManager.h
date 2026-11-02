@@ -166,6 +166,7 @@ private:
    void ZoneCacheRemove( const char* name );
    void ZoneCacheEvictOldest();
    void ZoneCacheFlush();
+   void ZoneCacheMakeRoom( int listsNeeded );
    bool ZoneCacheDefer( const char* name );
    bool mbIgnoreVisibilityClear;
    bool mbInVsibilityVolume;

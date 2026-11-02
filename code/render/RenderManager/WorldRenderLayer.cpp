@@ -1520,6 +1520,14 @@ bool WorldRenderLayer::IsDynaLoaded(tName& irGiveItAFuckinName)
 }
 
 //
+// Zone cache: the number of load lists (fixed at SetUpGuts) that are not occupied by a loaded zone.
+//
+int WorldRenderLayer::GetFreeDynaLoadLists()
+{
+   return mLoadLists.mSize - mLoadLists.mUseSize;
+}
+
+//
 // Zone cache: stop/resume the per-frame update of a loaded zone's animated
 // entities. AnimEntityDSGManager::Update walks every registered entity every
 // frame whether it is visible or not, so a zone kept in memory would otherwise
@@ -1577,6 +1585,8 @@ bool WorldRenderLayer::DoPreDynaLoad(tName& irGiveItAFuckinName)//tUID iUID)
    }
    else
    {
+      // mLoadLists has a fixed capacity; AddUse() does not check it in a release build
+      rAssert( mLoadLists.mUseSize < mLoadLists.mSize );
       rReleasePrintf("*******************Loading*****%s****\n", irGiveItAFuckinName.GetText());
       mLoadLists.AddUse(1);
       mCurLoadUID    = irGiveItAFuckinName.GetUID(); 
