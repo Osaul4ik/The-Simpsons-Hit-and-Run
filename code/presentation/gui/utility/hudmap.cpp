@@ -231,6 +231,10 @@ MEMTRACK_PUSH_GROUP( "CHudMap" );
     rAssert( m_p3dHole != NULL );
     m_p3dHole->SetCamera( m_hudMapCam->GetCamera() );
     m_p3dHole->SetColourWrite( false );
+#ifdef RAD_VITA
+    // the hole mesh does not reach the corners of the map window: close them with a depth mask
+    m_p3dHole->SetCircularDepthMask( true );
+#endif
 
     if( CGuiScreen::IsWideScreenDisplay() )
     {
@@ -1913,4 +1917,3 @@ CHudMap::DetermineOnRoadLocation( rmt::Vector& source, rmt::Vector& target, floa
     }
 #endif
 }
-

@@ -21,6 +21,7 @@
 #include <p3d/view.hpp>
 #include <p3d/scenegraph/scenegraph.hpp>
 #include <p3d/light.hpp>
+#include <p3d/shader.hpp>
 #include "utility/debugMessages.h"
 #include "FeApp.h"
 #include "FePure3dObject.h"
@@ -63,6 +64,7 @@ FePure3dObject::FePure3dObject
     m_DefaultLight( NULL ),
     m_numLightsAdded( 0 ),
     m_alias( NULL ),
+    m_depthMaskShader( NULL ),
     m_CameraNearPlane( 1.0f ),
     m_CameraFarPlane( 1000.0f ),
     m_drawableTranslateX( 0.0f ),
@@ -73,7 +75,8 @@ FePure3dObject::FePure3dObject
     m_colourWriteEnabled( true ),
     m_clearDepthBufferEnabled( false ),
     m_zbufferEnabled( true ),
-    m_isWideScreenCorrectionEnabled( false )
+    m_isWideScreenCorrectionEnabled( false ),
+    m_circularDepthMaskEnabled( false )
 {
     NormalizeCoord( x, y, mPosX, mPosY );
 /*
@@ -96,6 +99,12 @@ FePure3dObject::FePure3dObject
 //===========================================================================
 FePure3dObject::~FePure3dObject()
 {
+    if( m_depthMaskShader != NULL )
+    {
+        m_depthMaskShader->Release();
+        m_depthMaskShader = NULL;
+    }
+
     // remove all lights that were added to view
     //
     for( unsigned int i = 0; i < m_numLightsAdded; i++ )
@@ -508,6 +517,13 @@ void FePure3dObject::Render()
     rAssert( m_RuntimeDrawable != NULL );
     m_RuntimeDrawable->Display();
 
+    // close the window corners the hole mesh does not reach
+    //
+    if( m_circularDepthMaskEnabled && !m_colourWriteEnabled )
+    {
+        this->DrawCircularDepthMask();
+    }
+
     // restore everything we changed
     //
     originalCamera->SetState();
@@ -533,6 +549,96 @@ void FePure3dObject::Render()
     // pop the view state
     //
     p3d::pddi->PopState( PDDI_STATE_VIEW );
+}
+
+//===========================================================================
+// FePure3dObject::DrawCircularDepthMask
+//===========================================================================
+// Description: writes depth only (no colour) for everything between the
+//              ellipse inscribed in the current scissor window (m_rect) and
+//              the window border, at the nearest depth. Used by the circular
+//              HUD map: the hole mesh only masks what it covers, so the map
+//              geometry could show through in the corners of the window.
+//
+//===========================================================================
+void FePure3dObject::DrawCircularDepthMask()
+{
+    const float left   = static_cast<float>( m_rect.left );
+    const float right  = static_cast<float>( m_rect.right );
+    const float top    = static_cast<float>( m_rect.top );
+    const float bottom = static_cast<float>( m_rect.bottom );
+
+    const float hw = ( right - left ) * 0.5f;
+    const float hh = ( bottom - top ) * 0.5f;
+    if( hw < 1.0f || hh < 1.0f )
+    {
+        return;
+    }
+    const float cx = ( left + right ) * 0.5f;
+    const float cy = ( top + bottom ) * 0.5f;
+
+    if( m_depthMaskShader == NULL )
+    {
+        m_depthMaskShader = new tShader();
+        m_depthMaskShader->AddRef();
+        m_depthMaskShader->SetInt( PDDI_SP_COLOURWRITE, PDDI_WRITE_NONE );
+        m_depthMaskShader->SetInt( PDDI_SP_TWOSIDED, 1 );
+    }
+
+    p3d::pddi->PushState( (pddiStateMask)( PDDI_STATE_RENDER | PDDI_STATE_VIEW ) );
+
+    // pixel coordinates, nearest depth, depth write only
+    p3d::pddi->SetCamera( 0.0f, 1.0f, 1.0f, 1.0f );
+    p3d::pddi->SetProjectionMode( PDDI_PROJECTION_DEVICE );
+    p3d::pddi->EnableZBuffer( true );
+    p3d::pddi->SetZCompare( PDDI_COMPARE_ALWAYS );
+    p3d::pddi->SetZWrite( true );
+    p3d::pddi->SetColourWrite( false, false, false, false );
+    p3d::pddi->PushIdentityMatrix( PDDI_MATRIX_MODELVIEW );
+
+    // triangle strip between the inscribed ellipse and an enlarged window border
+    // (the scissor clips the excess; enlarged so the chords cannot cut the corners)
+    const int SEGMENTS = 64;
+    const float OUTER_SCALE = 1.5f;
+    const float TWO_PI = 6.28318530718f;
+    const float DEPTH = 0.0001f;
+
+    pddiPrimStream* stream = p3d::pddi->BeginPrims( m_depthMaskShader->GetShader(),
+                                                    PDDI_PRIM_TRISTRIP,
+                                                    PDDI_V_C,
+                                                    ( SEGMENTS + 1 ) * 2 );
+    pddiColour colour( 0, 0, 0, 0 );
+    for( int i = 0; i <= SEGMENTS; i++ )
+    {
+        const float angle = ( i == SEGMENTS ) ? 0.0f : TWO_PI * static_cast<float>( i ) / static_cast<float>( SEGMENTS );
+        const float c = rmt::Cos( angle );
+        const float s = rmt::Sin( angle );
+
+        // inner vertex: on the ellipse
+        rmt::Vector inner( cx + hw * c, cy + hh * s, DEPTH );
+
+        // outer vertex: where the ray leaves the window, enlarged
+        const float ac = rmt::Abs( c );
+        const float as = rmt::Abs( s );
+        float reach = 1.0e6f;
+        if( ac > 1.0e-4f )
+        {
+            reach = hw / ac;
+        }
+        if( as > 1.0e-4f && hh / as < reach )
+        {
+            reach = hh / as;
+        }
+        reach *= OUTER_SCALE;
+        rmt::Vector outer( cx + c * reach, cy + s * reach, DEPTH );
+
+        stream->Vertex( &inner, colour );
+        stream->Vertex( &outer, colour );
+    }
+    p3d::pddi->EndPrims( stream );
+
+    p3d::pddi->PopMatrix( PDDI_MATRIX_MODELVIEW );
+    p3d::pddi->PopState( (pddiStateMask)( PDDI_STATE_RENDER | PDDI_STATE_VIEW ) );
 }
 
 //===========================================================================
@@ -709,4 +815,3 @@ void FePure3dObject::SetDefaultLight( tLight* light )
         m_DefaultLight->AddRef();
     }
 }
-

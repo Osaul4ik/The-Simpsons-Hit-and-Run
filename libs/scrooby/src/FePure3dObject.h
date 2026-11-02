@@ -30,6 +30,7 @@ class tMultiController;
 class tLight;
 class PascalCString;
 class tCamera;
+class tShader;
 
 const unsigned int MAX_NUM_LIGHTS = 8;
 
@@ -94,6 +95,12 @@ class FePure3dObject :
         void SetClearDepthBuffer( bool enable ) { m_clearDepthBufferEnabled = enable; }
         void SetZBufferEnabled( bool enable ) { m_zbufferEnabled = enable; }
 
+        // when enabled (and colour write is disabled, i.e. this object is a depth-only "hole"),
+        // the part of this object's window outside the inscribed ellipse is also written to the
+        // depth buffer, so that geometry drawn afterwards cannot show up in the window corners
+        // regardless of the shape of the hole mesh
+        void SetCircularDepthMask( bool enable ) { m_circularDepthMaskEnabled = enable; }
+
         virtual void SetWideScreenCorrectionEnabled( bool isEnabled ) { m_isWideScreenCorrectionEnabled = isEnabled; }
 
     protected:
@@ -110,6 +117,7 @@ class FePure3dObject :
         FePure3dObject& operator= ( const FePure3dObject& );
 
         void RecalcView();
+        void DrawCircularDepthMask();
 
         //---------------------------------------------------------------------
         // Private Data
@@ -130,6 +138,7 @@ class FePure3dObject :
         unsigned int        m_numLightsAdded;
 
         PascalCString*      m_alias;
+        tShader*            m_depthMaskShader;
 
         float m_CameraNearPlane;
         float m_CameraFarPlane;
@@ -146,6 +155,7 @@ class FePure3dObject :
         bool m_zbufferEnabled : 1;
 
         bool m_isWideScreenCorrectionEnabled : 1;
+        bool m_circularDepthMaskEnabled : 1;
 
 };
 
