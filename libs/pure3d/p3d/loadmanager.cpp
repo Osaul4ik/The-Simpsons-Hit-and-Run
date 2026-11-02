@@ -219,8 +219,9 @@ tLoadStatus  tP3DFileHandler::Load(tFile* file, tEntityStore* store)
             const radTime64 stallWork = stallWall > stallYielded ? stallWall - stallYielded : 0;
             if( stallWork >= P3D_STALL_LOG_THRESHOLD_US )
             {
-                rReleasePrintf( "[stall] chunk 0x%x (%s) in %s: %u ms of work, %u ms yielded\n",
-                                chunkFile->GetCurrentID(), tChunkHandler::ChunkTypeName( chunkFile->GetCurrentID() ),
+                // ChunkTypeName() only exists with P3D_TRACK_LOAD_STATS, so log the numeric id
+                rReleasePrintf( "[stall] chunk 0x%x in %s: %u ms of work, %u ms yielded\n",
+                                chunkFile->GetCurrentID(),
                                 file->GetFilename(), (unsigned)( stallWork / 1000 ), (unsigned)( stallYielded / 1000 ) );
             }
 #endif
