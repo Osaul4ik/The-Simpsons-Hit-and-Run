@@ -25,13 +25,22 @@ class radDrive;
 // Class Declarations
 //=============================================================================
 
+// radThread multiplies the stack size by 1024, so these values are in KB.
+// The PS2-era default of 4096 meant a 4 MB stack per drive thread, which is a
+// lot of the Vita's RAM. The drive thread only does file I/O, 128 KB is plenty.
+#ifdef RAD_VITA
+#define RAD_DRIVE_THREAD_STACK_KB 128
+#else
+#define RAD_DRIVE_THREAD_STACK_KB 4096
+#endif
+
 class radDriveThread : public IRefCount,
                        public radObject,
                        public radSafeRefCount
 {
 public:
 
-    radDriveThread( IRadThreadMutex* pMutex, radMemoryAllocator alloc, unsigned int stackSize = 4096 );
+    radDriveThread( IRadThreadMutex* pMutex, radMemoryAllocator alloc, unsigned int stackSize = RAD_DRIVE_THREAD_STACK_KB );
     virtual ~radDriveThread( );
 
     IMPLEMENT_SAFEREFCOUNTED;

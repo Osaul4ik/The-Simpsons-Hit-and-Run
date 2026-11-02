@@ -96,6 +96,13 @@
 #include <main/commandlineoptions.h>
 #include <main/game.h>
 #include <render/RenderManager/RenderManager.h>
+
+// Defined in main/win32main.cpp; logs a milestone plus the memory state (RAD_LOG builds only).
+#if defined( RAD_LOG ) && defined( RAD_VITA )
+void LogProgress( const char* stage );
+#else
+#define LogProgress( stage ) ((void)0)
+#endif
 #include <render/RenderFlow/renderflow.h>
 #include <render/Loaders/AllWrappers.h>
 #include <memory/srrmemory.h>
@@ -440,15 +447,19 @@ void Win32Platform::InitializeFoundation()
         32, // Default
         GMA_PERSISTENT );
 
+    LogProgress( "before radLoadInitialize" );
     ::radLoadInitialize();
-    //radLoad->SetSyncLoading( true );	
+    LogProgress( "after radLoadInitialize" );
+    //radLoad->SetSyncLoading( true );
 
     ::radDriveMount( NULL, GMA_PERSISTENT);
+    LogProgress( "after radDriveMount" );
 
     //
     // Initialize the new movie player
     //
     ::radMovieInitialize2( GMA_PERSISTENT );
+    LogProgress( "after radMovieInitialize2" );
 
     HeapMgr()->PopHeap (GMA_PERSISTENT);
 }
@@ -2004,4 +2015,3 @@ bool SDLCALL Win32Platform::WndProc( void * userdata, SDL_Event * event )
 
     return 1;
 }
-

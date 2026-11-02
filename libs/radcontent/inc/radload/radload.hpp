@@ -166,10 +166,19 @@ extern radLoadManagerWrapper radLoad;
   * Initialization structure.  Contains the parameters that are passed to 
   * the Initialize function of the ILoadManager.
   */
+// Load thread stack size in KB (radThread multiplies it by 1024). The PS2-era
+// 65536 meant a 64 MB stack. On Vita 512 KB is enough for the recursive chunk
+// parsing and leaves the RAM for the game.
+#ifdef RAD_VITA
+#define RAD_LOAD_THREAD_STACK_KB 512
+#else
+#define RAD_LOAD_THREAD_STACK_KB 65536
+#endif
+
 struct radLoadInit
 {
     // Constructor to fill in the default variables
-    radLoadInit() : fileLoaderListSize( 64 ), dataLoaderListSize( 256 ), loadQueueSize( 32 ), loadThreadStackSize( 65536 ) {};
+    radLoadInit() : fileLoaderListSize( 64 ), dataLoaderListSize( 256 ), loadQueueSize( 32 ), loadThreadStackSize( RAD_LOAD_THREAD_STACK_KB ) {};
 
     ///@{ Sets the loader list size limit.
     /// \attention Must be a power of two.
@@ -322,4 +331,3 @@ template <class base> base* radLoadFind( radLoadInventory* inventory, const char
 
 
 #endif
-

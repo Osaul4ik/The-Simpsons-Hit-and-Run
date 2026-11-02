@@ -27,8 +27,10 @@
 
 #ifdef RAD_VITA
 #include <unistd.h>
+#include <malloc.h>
 #include <psp2/kernel/clib.h>
 #include <psp2/kernel/sysmem.h>
+#include <radmemory.hpp>
 unsigned int sceLibcHeapSize = 16 * 1024 * 1024;
 
 // Size of the newlib heap backing malloc/new, read by vitasdk's sbrk at startup.
@@ -93,9 +95,37 @@ static void LogOutputFunction( void *userdata, int category, SDL_LogPriority pri
 //              that the point where the game hangs or crashes can be found in
 //              the log. Does nothing unless built with SRR2_LOG.
 //
+//              Besides the kernel free memory it prints the newlib malloc
+//              state (mallinfo) and the free/largest-block numbers of the
+//              radMemorySpace heaps (User, Cdram, Phycont), because the kernel
+//              number alone does not show how full the 192 MB newlib heap is.
+//
+//              Not static: also called from Win32Platform::InitializeFoundation.
+//
 //=============================================================================
 #ifdef RAD_LOG
-static void LogProgress( const char* stage )
+#ifdef RAD_VITA
+extern IRadMemoryHeap* g_pIRadMemoryHeap_User;
+extern IRadMemoryHeap* g_pIRadMemoryHeap_Cdram;
+#ifdef RAD_GXM
+extern IRadMemoryHeap* g_pIRadMemoryHeap_Phycont;
+#endif
+
+static void LogHeap( const char* name, IRadMemoryHeap* heap )
+{
+    if( heap == NULL )
+    {
+        return;
+    }
+    unsigned int totalFree = 0, largestBlock = 0, numObjects = 0, highWater = 0;
+    heap->GetStatus( &totalFree, &largestBlock, &numObjects, &highWater );
+    rReleasePrintf( "[mem] heap %s: size=%u KB free=%u KB largest=%u KB objects=%u highwater=%u KB\n",
+                    name, heap->GetSize() / 1024, totalFree / 1024, largestBlock / 1024,
+                    numObjects, highWater / 1024 );
+}
+#endif
+
+void LogProgress( const char* stage )
 {
     rReleasePrintf( "[boot] %s\n", stage );
 #ifdef RAD_VITA
@@ -106,6 +136,17 @@ static void LogProgress( const char* stage )
         rReleasePrintf( "[mem] free user=%d KB cdram=%d KB phycont=%d KB\n",
                         info.size_user / 1024, info.size_cdram / 1024, info.size_phycont / 1024 );
     }
+
+    // newlib malloc: arena = bytes obtained from sbrk, uordblks = in use, fordblks = free inside the arena
+    struct mallinfo mi = mallinfo();
+    rReleasePrintf( "[mem] malloc: arena=%d KB used=%d KB free=%d KB\n",
+                    mi.arena / 1024, mi.uordblks / 1024, mi.fordblks / 1024 );
+
+    LogHeap( "user", g_pIRadMemoryHeap_User );
+    LogHeap( "cdram", g_pIRadMemoryHeap_Cdram );
+#ifdef RAD_GXM
+    LogHeap( "phycont", g_pIRadMemoryHeap_Phycont );
+#endif
 #endif
 }
 #else
