@@ -74,6 +74,11 @@ gxmContext::gxmContext(gxmDevice* dev, gxmDisplay* disp) : pddiBaseContext((pddi
     vertexShader = nullptr;
     // DefaultState() below syncs the scissor and stencil state, which look at these
     inScene = false;
+    for(int i = 0; i < PDDI_MAX_LIGHTS; i++)
+    {
+        lightViewPosition[i].Set(0.0f, 0.0f, 0.0f);
+        lightViewDirection[i].Set(0.0f, 0.0f, -1.0f);
+    }
     stencilDirty = true;
     stencilHwMode = STENCIL_HW_UNKNOWN;
 
@@ -853,6 +858,18 @@ int gxmContext::GetMaxLights(void)
 
 void gxmContext::SetupHardwareLight(int handle)
 {
+    if(handle < 0 || handle >= PDDI_MAX_LIGHTS)
+        return;
+
+    pddiMatrixStack* stack = state.matrixStack[PDDI_MATRIX_MODELVIEW];
+    if(!stack)
+        return;
+
+    // world space -> view space with the matrix current right now (the view matrix)
+    const pddiLight* l = &state.lightingState->light[handle];
+    const pddiMatrix* view = stack->Top();
+    lightViewDirection[handle].Rotate(l->worldDirection, *view);
+    lightViewPosition[handle].Transform(l->worldPosition, *view);
 }
 
 void gxmContext::SetAmbientLight(pddiColour col)
@@ -868,9 +885,13 @@ SceGxmCullMode cullModeTable[3] =
     SCE_GXM_CULL_CCW   // PDDI_CULL_INVERTED
 };
 
+// enable == true: apply the cull mode of the render state (single sided material),
+// enable == false: draw both faces (two sided material). The caller passes !twoSided.
+// This used to be inverted, so single sided materials were never culled and the culling the
+// shadow volume passes select with SetCullMode() was overridden by every material change.
 void gxmContext::EnableCulling(bool enable)
 {
-    sceGxmSetCullMode(context, enable ? SCE_GXM_CULL_NONE : cullModeTable[state.renderState->cullMode]);
+    sceGxmSetCullMode(context, enable ? cullModeTable[state.renderState->cullMode] : SCE_GXM_CULL_NONE);
 }
 
 void gxmContext::SetCullMode(pddiCullMode mode)
@@ -1232,7 +1253,7 @@ void gxmContext::SetTextureEnvironment(const gxmTextureEnv* texEnv, gxmProgram* 
     if(!ReserveVertexUniforms())
         return; // ring still exhausted: skip the uniform upload instead of writing through NULL
     for(int i = 0; i < PDDI_MAX_LIGHTS; i++)
-        vertexProgram->SetLightState(vertexUniformBuffer, i, &state.lightingState->light[i], texEnv->lit, texEnv->shininess);
+        vertexProgram->SetLightState(vertexUniformBuffer, i, &state.lightingState->light[i], &lightViewPosition[i], &lightViewDirection[i], texEnv->lit, texEnv->shininess);
     vertexProgram->SetAmbientLight(vertexUniformBuffer, state.lightingState->ambient);
     vertexProgram->SetModelViewMatrix(vertexUniformBuffer, state.matrixStack[PDDI_MATRIX_MODELVIEW]->Top(), texEnv->lit);
     vertexProgram->SetProjectionMatrix(vertexUniformBuffer, &projection);

@@ -150,6 +150,13 @@ protected:
     bool stencilDirty;          // base-class stencil state changed since the last ApplyStencil
     int stencilHwMode;
 
+    // Lights are stored by the base class in world space. The vertex shader lights in view
+    // space (like glLightfv / d3dContext::UploadLights), so every light is transformed by the
+    // modelview matrix that was current when the light was set (the camera/view matrix, see
+    // tView::Display).
+    pddiVector lightViewPosition[PDDI_MAX_LIGHTS];
+    pddiVector lightViewDirection[PDDI_MAX_LIGHTS];
+
     gxmExtGamma* extGamma;
 
     pddiShader* defaultShader;

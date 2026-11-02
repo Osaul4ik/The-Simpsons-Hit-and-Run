@@ -27,7 +27,7 @@ public:
     void SetModelViewMatrix( void* buffer, const pddiMatrix* matrix, bool needNormalMatrix = true );
     void SetTextureEnvironment( void* buffer, const gxmTextureEnv* texEnv );
     void SetAlphaTest( void* buffer, const gxmTextureEnv* texEnv );
-    void SetLightState( void* buffer, int handle, const pddiLight* lightState, bool enabled, float shininess );
+    void SetLightState( void* buffer, int handle, const pddiLight* lightState, const pddiVector* viewPosition, const pddiVector* viewDirection, bool enabled, float shininess );
     void SetAmbientLight( void* buffer, pddiColour ambient );
 
     inline bool SupportsLighting() { return acs != nullptr; }

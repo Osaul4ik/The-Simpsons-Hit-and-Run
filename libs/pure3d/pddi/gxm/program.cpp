@@ -142,7 +142,7 @@ void gxmProgram::SetAlphaTest(void* buffer, const gxmTextureEnv* texEnv)
     }
 }
 
-void gxmProgram::SetLightState( void* buffer, int handle, const pddiLight* lightState, bool lit, float shininess )
+void gxmProgram::SetLightState( void* buffer, int handle, const pddiLight* lightState, const pddiVector* viewPosition, const pddiVector* viewDirection, bool lit, float shininess )
 {
     if(handle >= PDDI_MAX_LIGHTS)
         return;
@@ -153,16 +153,16 @@ void gxmProgram::SetLightState( void* buffer, int handle, const pddiLight* light
         switch(lightState->type)
         {
             case PDDI_LIGHT_DIRECTIONAL :
-                dir[0] = -lightState->worldDirection.x;
-                dir[1] = -lightState->worldDirection.y;
-                dir[2] = -lightState->worldDirection.z;
+                dir[0] = -viewDirection->x;
+                dir[1] = -viewDirection->y;
+                dir[2] = -viewDirection->z;
                 dir[3] = 0.0f;
                 break;
 
             case PDDI_LIGHT_POINT :
-                dir[0] = lightState->worldPosition.x;
-                dir[1] = lightState->worldPosition.y;
-                dir[2] = lightState->worldPosition.z;
+                dir[0] = viewPosition->x;
+                dir[1] = viewPosition->y;
+                dir[2] = viewPosition->z;
                 dir[3] = 1.0f;
                 break;
 
