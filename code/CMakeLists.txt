@@ -566,6 +566,11 @@ if(VITA)
 			vitaGL
 			vitashark
 		)
+	else()
+		# vitasdk's SDL2 still drags libvitashark.a in (its Vita video driver uses it), and
+		# vitashark needs SceShaccCgExt/SceShaccCg_stub. Without vitaGL in our own list the
+		# linker sees them in the wrong order, so append them after everything else.
+		set(CMAKE_CXX_STANDARD_LIBRARIES "${CMAKE_CXX_STANDARD_LIBRARIES} -lvitashark -lSceShaccCgExt -lSceShaccCg_stub")
 	endif()
 	target_link_libraries(${PROJECT_NAME}
 		SceLibKernel_stub
