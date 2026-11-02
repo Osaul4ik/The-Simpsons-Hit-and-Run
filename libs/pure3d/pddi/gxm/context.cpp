@@ -72,8 +72,10 @@ gxmContext::gxmContext(gxmDevice* dev, gxmDisplay* disp) : pddiBaseContext((pddi
     display = disp;
     context = display->GetGXMContext();
     vertexShader = nullptr;
-    // DefaultState() below syncs the scissor, which looks at inScene
+    // DefaultState() below syncs the scissor and stencil state, which look at these
     inScene = false;
+    stencilDirty = true;
+    stencilHwMode = STENCIL_HW_UNKNOWN;
 
     device->AddRef();
     display->AddRef();
@@ -234,6 +236,14 @@ void gxmContext::BeginFrame()
 
     // a new scene starts with the region clip of the last SetScissor() call
     ApplyScissor();
+
+    // An enabled stencil state is sent again at the first draw of the scene, in case the scene
+    // start does not keep it. The disabled state is the hardware default, nothing to resend.
+    if(stencilHwMode == STENCIL_HW_ON)
+    {
+        stencilHwMode = STENCIL_HW_UNKNOWN;
+        stencilDirty = true;
+    }
 
     projection.Identity();
 }
@@ -448,6 +458,7 @@ pddiPrimStream* gxmContext::BeginPrims(pddiShader* mat, pddiPrimType primType, u
         mat = defaultShader;
     PDDIASSERT(vertexCount);
 
+    FlushStencilState();
     pddiBaseContext::BeginPrims(mat, primType, vertexType, vertexCount);
 
     // Buffers are created with a rounded-up capacity so a recycled one fits any nearby count.
@@ -823,6 +834,8 @@ void gxmContext::DrawPrimBuffer(pddiShader* mat, pddiPrimBuffer* buffer)
     if(!mat)
         mat = defaultShader;
 
+    FlushStencilState();
+
     pddiBaseShader* material = (pddiBaseShader*)mat;
     ADD_STAT(PDDI_STAT_MATERIAL_OPS, !material->IsCurrent());
     SetVertexShader(((gxmPrimBuffer*)buffer)->GetVertexShader());
@@ -961,26 +974,43 @@ void gxmContext::EnableStencilBuffer(bool enable)
     SetupHardwareStencil();
 }
 
-void gxmContext::SetupHardwareStencil(void)
+// GXM has no stencil enable switch and tests front and back faces with separate state, so both
+// sides are always programmed together: the PDDI state (like glStencilFunc/glStencilOp) applies to
+// every face, and the shadow volume passes (INCR on one facing, DECR on the other, selected only
+// by the cull mode) need it on both. "Disabled" is ALWAYS/KEEP with empty masks on both sides.
+void gxmContext::ApplyStencil(void)
 {
-    if(state.stencilState->enabled)
+    stencilDirty = false;
+    const pddiStencilState* s = state.stencilState;
+
+    if(s->enabled)
     {
-        sceGxmSetFrontStencilFunc(context,
-            stencilTable[state.stencilState->compare],
-            stencilOpTable[state.stencilState->failOp],
-            stencilOpTable[state.stencilState->zFailOp],
-            stencilOpTable[state.stencilState->zPassOp],
-            state.stencilState->mask,
-            state.stencilState->writeMask);
+        const SceGxmStencilFunc func = stencilTable[s->compare];
+        const SceGxmStencilOp fail = stencilOpTable[s->failOp];
+        const SceGxmStencilOp zFail = stencilOpTable[s->zFailOp];
+        const SceGxmStencilOp zPass = stencilOpTable[s->zPassOp];
+        const uint8_t compareMask = (uint8_t)s->mask;
+        const uint8_t writeMask = (uint8_t)s->writeMask;
+
+        sceGxmSetFrontStencilFunc(context, func, fail, zFail, zPass, compareMask, writeMask);
+        sceGxmSetBackStencilFunc(context, func, fail, zFail, zPass, compareMask, writeMask);
+        sceGxmSetFrontStencilRef(context, (uint8_t)s->ref);
+        sceGxmSetBackStencilRef(context, (uint8_t)s->ref);
+        stencilHwMode = STENCIL_HW_ON;
     }
-    else
+    else if(stencilHwMode != STENCIL_HW_OFF)
     {
+        // only touch the hardware if it was not already programmed as disabled: the sync of
+        // a pushed/popped stencil state would otherwise resend it on every pass
+        sceGxmSetFrontStencilFunc(context,
+            SCE_GXM_STENCIL_FUNC_ALWAYS,
+            SCE_GXM_STENCIL_OP_KEEP, SCE_GXM_STENCIL_OP_KEEP, SCE_GXM_STENCIL_OP_KEEP,
+            0, 0);
         sceGxmSetBackStencilFunc(context,
             SCE_GXM_STENCIL_FUNC_ALWAYS,
-            SCE_GXM_STENCIL_OP_KEEP,
-            SCE_GXM_STENCIL_OP_KEEP,
-            SCE_GXM_STENCIL_OP_KEEP,
+            SCE_GXM_STENCIL_OP_KEEP, SCE_GXM_STENCIL_OP_KEEP, SCE_GXM_STENCIL_OP_KEEP,
             0, 0);
+        stencilHwMode = STENCIL_HW_OFF;
     }
 }
         
@@ -993,7 +1023,7 @@ void gxmContext::SetStencilCompare(pddiCompareMode compare)
 void gxmContext::SetStencilRef(int ref)
 {
     pddiBaseContext::SetStencilRef(ref);
-    sceGxmSetFrontStencilRef(context, ref);
+    SetupHardwareStencil();
 }
 
 void gxmContext::SetStencilMask(unsigned mask)

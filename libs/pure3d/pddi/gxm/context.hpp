@@ -119,7 +119,13 @@ protected:
     friend class gxmPrimBuffer;
     void LoadHardwareMatrix(pddiMatrixType id);
     void SetupHardwareProjection(void);
-    void SetupHardwareStencil(void);
+    // Stencil state is programmed lazily. The base-class state sync calls all six stencil setters
+    // in a row (every PushState/PopState of the stencil state), and GXM wants front and back faces
+    // programmed separately, so the setters only mark the state dirty and FlushStencilState()
+    // sends it to the hardware once, right before a draw (always inside a scene).
+    void SetupHardwareStencil(void) { stencilDirty = true; }
+    void FlushStencilState(void) { if(stencilDirty) ApplyStencil(); }
+    void ApplyStencil(void);
     void SetupHardwareLight(int);
     void  BeginTiming(void);
     float EndTiming(void);
@@ -138,6 +144,11 @@ protected:
     gxmDisplay* display;
     struct SceGxmContext* context;
     bool inScene;               // true between sceGxmBeginScene and sceGxmEndScene
+
+    // what the hardware stencil state was last programmed to (see ApplyStencil)
+    enum { STENCIL_HW_UNKNOWN, STENCIL_HW_OFF, STENCIL_HW_ON };
+    bool stencilDirty;          // base-class stencil state changed since the last ApplyStencil
+    int stencilHwMode;
 
     gxmExtGamma* extGamma;
 
