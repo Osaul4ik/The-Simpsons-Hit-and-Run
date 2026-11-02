@@ -63,13 +63,15 @@ jobs:
         run: |
           test -n "$ART_DEPLOY_KEY" || { echo "::error::Secret ART_DEPLOY_KEY is not set"; exit 1; }
           command -v ssh >/dev/null || { apt-get update -qq && apt-get install -y -qq openssh-client; }
-          install -m 700 -d ~/.ssh
-          printf '%s\n' "$ART_DEPLOY_KEY" > ~/.ssh/art_key
-          chmod 600 ~/.ssh/art_key
-          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
-          GIT_SSH_COMMAND="ssh -i ~/.ssh/art_key -o IdentitiesOnly=yes" \
+          # Do not use ~/.ssh: in the container ssh reads the passwd home (/root), not $HOME
+          KEYDIR="$(mktemp -d)"
+          printf '%s\n' "$ART_DEPLOY_KEY" > "$KEYDIR/key"
+          chmod 600 "$KEYDIR/key"
+          ssh-keyscan github.com > "$KEYDIR/known_hosts" 2>/dev/null
+          test -s "$KEYDIR/known_hosts" || { echo "::error::ssh-keyscan github.com failed"; exit 1; }
+          GIT_SSH_COMMAND="ssh -i $KEYDIR/key -o IdentitiesOnly=yes -o UserKnownHostsFile=$KEYDIR/known_hosts" \
             git clone --depth 1 git@github.com:Osaul4ik/simpsons_art.git /tmp/assets
-          rm -f ~/.ssh/art_key
+          rm -rf "$KEYDIR"
           if [ -d /tmp/assets/art ]; then cp -r /tmp/assets/art art; \
           else mkdir art && cp -r /tmp/assets/. art/ && rm -rf art/.git; fi
           test -d art/frontend/scrooby
