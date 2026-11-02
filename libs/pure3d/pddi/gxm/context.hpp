@@ -6,7 +6,16 @@
 #ifndef _CONTEXT_HPP_
 #define _CONTEXT_HPP_
 
-#define BUFFERED_VERTS 1024
+// Max immediate-mode draws in flight per scene. When this ring fills up, BeginPrims() has to
+// do a mid-scene flush and wait for the GPU, which stalls the CPU and costs an extra
+// tile pass (typical cause of 60 -> 30 fps drops in dense areas). Entries are just
+// pointers, so a large ring is cheap.
+#define BUFFERED_VERTS 4096
+
+// Recycling of immediate-mode prim buffers (see gxmContext::AcquirePrimBuffer).
+#define PRIM_POOL_BUCKETS   64
+#define PRIM_POOL_DEPTH     4
+#define PRIM_POOL_MAX_VERTS 256   // only small buffers are pooled, to bound the memory held
 
 #include <pddi/pddi.hpp>
 #include <pddi/base/basecontext.hpp>
@@ -152,6 +161,17 @@ protected:
     unsigned int streamsTail;
     SceGxmNotification streamsHead;
     class pddiPrimBuffer* streams[BUFFERED_VERTS];
+
+    // Pool of finished immediate-mode prim buffers, keyed by (type, format, vertex count).
+    // Creating one costs three heap allocations plus a precomputed-draw init, which was
+    // done for every BeginPrims() call.
+    class gxmPrimBuffer* primPool[PRIM_POOL_BUCKETS][PRIM_POOL_DEPTH];
+    unsigned char primPoolCount[PRIM_POOL_BUCKETS];
+    unsigned primPoolHits, primPoolMisses, midSceneFlushes, statFrames;
+
+    class gxmPrimBuffer* AcquirePrimBuffer(pddiPrimType type, unsigned vertexType, int nVertex);
+    void RecyclePrimBuffer(pddiPrimBuffer* buffer);
+    void DrainPrimPool();
 };
 
 class gxmPrimBufferStream;
@@ -180,6 +200,20 @@ public:
     unsigned GetVertexFormat() { return vertexType; }
     unsigned GetStride() { return stride; }
     void Display(void);
+
+    // pool support
+    bool IsUnshared() const { return refCount <= 0; }
+    bool Poolable() const { return allocated <= PRIM_POOL_MAX_VERTS && indexCount == allocated; }
+    bool Matches(pddiPrimType type, unsigned vertexFormat, int nVertex) const
+    {
+        return primType == type && vertexType == vertexFormat && (int)allocated == nVertex;
+    }
+    static unsigned PoolBucket(pddiPrimType type, unsigned vertexFormat, unsigned nVertex)
+    {
+        unsigned k = nVertex * 2654435761u ^ vertexFormat * 40503u ^ (unsigned)type * 97u;
+        return (k ^ (k >> 7) ^ (k >> 15)) % PRIM_POOL_BUCKETS;
+    }
+    unsigned PoolBucket() const { return PoolBucket(primType, vertexType, allocated); }
 
 protected:
     friend class gxmPrimBufferStream;
@@ -214,4 +248,3 @@ protected:
 };
     
 #endif
-

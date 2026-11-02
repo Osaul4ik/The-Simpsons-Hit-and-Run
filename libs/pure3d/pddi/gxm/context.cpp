@@ -13,6 +13,9 @@
 #include <pddi/base/debug.hpp>
 #include <p3d/utility.hpp>
 #include <radmemory.hpp>
+#ifdef RAD_LOG
+#include <raddebug.hpp>
+#endif
 
 #include <math.h>
 #include <string.h>
@@ -148,11 +151,15 @@ gxmContext::gxmContext(gxmDevice* dev, gxmDisplay* disp) : pddiBaseContext((pddi
     streamsTail = 0;
     streamsHead = SceGxmNotification{ sceGxmGetNotificationRegion() };
     memset(streams, 0, sizeof(streams));
+    memset(primPool, 0, sizeof(primPool));
+    memset(primPoolCount, 0, sizeof(primPoolCount));
+    primPoolHits = primPoolMisses = midSceneFlushes = statFrames = 0;
     *sceGxmGetNotificationRegion() = 0;
 }
 
 gxmContext::~gxmContext()
 {
+    DrainPrimPool();
     defaultShader->Release();
     clearShader->Release();
     vertexProgram->Release();
@@ -182,6 +189,19 @@ void gxmContext::BeginFrame()
     pddiBaseContext::BeginFrame();
 
     FlushVertexStreams();
+
+    // pooled buffers hold patched vertex programs, drop them when the display is reset
+    if(display->HasReset())
+        DrainPrimPool();
+
+#ifdef RAD_LOG
+    if(++statFrames >= 900)
+    {
+        rReleasePrintf("[gxm] last %u frames: primPool hits=%u misses=%u, mid-scene flushes=%u\n",
+                       statFrames, primPoolHits, primPoolMisses, midSceneFlushes);
+        statFrames = primPoolHits = primPoolMisses = midSceneFlushes = 0;
+    }
+#endif
 
     CHK_GXM(sceGxmBeginScene(
         context,
@@ -367,12 +387,14 @@ pddiPrimStream* gxmContext::BeginPrims(pddiShader* mat, pddiPrimType primType, u
     pddiBaseContext::BeginPrims(mat, primType, vertexType, vertexCount);
 
     pddiPrimBufferDesc desc(primType, vertexType, vertexCount);
-    thePrimStream.buffer = device->NewPrimBuffer(&desc);
+    gxmPrimBuffer* pooled = AcquirePrimBuffer(primType, vertexType, vertexCount);
+    thePrimStream.buffer = pooled ? pooled : device->NewPrimBuffer(&desc);
     thePrimStream.stream = thePrimStream.buffer->Lock();
 
     if((streamsHead.value + 1) % BUFFERED_VERTS == streamsTail)
     {
         rDebugString("Vertex stream ring-buffer is full! Waiting for mid-scene flush, consider increasing BUFFERED_VERTS.");
+        ++midSceneFlushes;
         CHK_GXM(sceGxmMidSceneFlush(context, 0, NULL, &streamsHead));
         CHK_GXM(sceGxmNotificationWait(&streamsHead));
         FlushVertexStreams();
@@ -978,9 +1000,59 @@ void gxmContext::FlushVertexStreams()
     while(streamsTail != *streamsHead.address)
     {
         if(streams[streamsTail])
-            streams[streamsTail]->Release();
+            RecyclePrimBuffer(streams[streamsTail]);
         streams[streamsTail] = NULL;
         streamsTail = (streamsTail + 1) % BUFFERED_VERTS;
+    }
+}
+
+gxmPrimBuffer* gxmContext::AcquirePrimBuffer(pddiPrimType type, unsigned vertexType, int nVertex)
+{
+    if(nVertex <= 0 || nVertex > PRIM_POOL_MAX_VERTS)
+        return NULL;
+
+    const unsigned b = gxmPrimBuffer::PoolBucket(type, vertexType, (unsigned)nVertex);
+    for(int i = (int)primPoolCount[b] - 1; i >= 0; --i)
+    {
+        gxmPrimBuffer* buf = primPool[b][i];
+        if(buf->Matches(type, vertexType, nVertex))
+        {
+            primPool[b][i] = primPool[b][--primPoolCount[b]];
+            ++primPoolHits;
+            return buf;
+        }
+    }
+    ++primPoolMisses;
+    return NULL;
+}
+
+// Called once the GPU has finished with an immediate-mode buffer (same point where it used
+// to be deleted). Keeps small ones for reuse; everything else is released as before.
+void gxmContext::RecyclePrimBuffer(pddiPrimBuffer* buffer)
+{
+    gxmPrimBuffer* buf = (gxmPrimBuffer*)buffer;
+    if(buf->Poolable() && buf->IsUnshared())
+    {
+        const unsigned b = buf->PoolBucket();
+        if(primPoolCount[b] < PRIM_POOL_DEPTH)
+        {
+            primPool[b][primPoolCount[b]++] = buf;
+            return;
+        }
+    }
+    buffer->Release();
+}
+
+void gxmContext::DrainPrimPool()
+{
+    for(unsigned b = 0; b < PRIM_POOL_BUCKETS; ++b)
+    {
+        while(primPoolCount[b] > 0)
+        {
+            gxmPrimBuffer* buf = primPool[b][--primPoolCount[b]];
+            primPool[b][primPoolCount[b]] = NULL;
+            buf->Release();
+        }
     }
 }
 
