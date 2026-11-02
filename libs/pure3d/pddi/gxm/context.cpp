@@ -311,9 +311,9 @@ void gxmContext::SetupHardwareProjection(void)
                       -((1/state.viewState->camera.aspect)/2),  ((1/state.viewState->camera.aspect)/2),
                       (state.viewState->camera.nearPlane),(state.viewState->camera.farPlane));
             sceGxmSetViewport(context,
-                              (state.viewState->viewWindow.left + 0.5f) * display->GetWidth(),
+                              ((state.viewState->viewWindow.left + state.viewState->viewWindow.right) / 2.0f) * display->GetWidth(),
                               (state.viewState->viewWindow.right - state.viewState->viewWindow.left) * display->GetWidth() / 2.0f,
-                              (state.viewState->viewWindow.top + 0.5f) * display->GetHeight(),
+                              ((state.viewState->viewWindow.top + state.viewState->viewWindow.bottom) / 2.0f) * display->GetHeight(),
                               (state.viewState->viewWindow.top - state.viewState->viewWindow.bottom) * display->GetHeight() / 2.0f,
                               (state.viewState->zRange[0] + state.viewState->zRange[1]) / 2.0f,
                               (state.viewState->zRange[1] - state.viewState->zRange[0]) / 2.0f);
@@ -323,9 +323,9 @@ void gxmContext::SetupHardwareProjection(void)
             projection.Identity();
             projection.SetPerspective(state.viewState->camera.fov,state.viewState->camera.aspect,state.viewState->camera.nearPlane,state.viewState->camera.farPlane);
             sceGxmSetViewport(context,
-                            (state.viewState->viewWindow.left + 0.5f)* display->GetWidth(),
+                            ((state.viewState->viewWindow.left + state.viewState->viewWindow.right) / 2.0f)* display->GetWidth(),
                             (state.viewState->viewWindow.right - state.viewState->viewWindow.left) * display->GetWidth() / 2.0f,
-                            (state.viewState->viewWindow.top + 0.5f) * display->GetHeight(),
+                            ((state.viewState->viewWindow.top + state.viewState->viewWindow.bottom) / 2.0f) * display->GetHeight(),
                             (state.viewState->viewWindow.top - state.viewState->viewWindow.bottom) * display->GetHeight() / 2.0f,
                             (state.viewState->zRange[0] + state.viewState->zRange[1]) / 2.0f,
                             (state.viewState->zRange[1] - state.viewState->zRange[0]) / 2.0f);
