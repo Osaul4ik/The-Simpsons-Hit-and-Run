@@ -1,3 +1,13 @@
+// The driver is normally already up (radMemorySpaceInitialize calls radGxmEarlyInit
+    // before reserving the game heaps); this is a no-op in that case.
+    if(!InitializeDriver())
+    {
+#ifdef RAD_LOG
+        rReleasePrintf("[gxm] sceGxmInitialize failed, cannot create display\n");
+#endif
+        return false;
+    }
+
 //=============================================================================
 // Copyright (c) 2002 Radical Games Ltd.  All rights reserved.
 //=============================================================================
@@ -33,6 +43,61 @@
 #ifdef ENABLE_RAZOR_GPU_CAPTURE
 #include <psp2/razor_capture.h>
 #endif
+
+
+// ---------------------------------------------------------------------------
+// GXM driver initialisation
+//
+// sceGxmInitialize() allocates its own driver memory (parameter buffer etc.) from the
+// system pools. radMemorySpaceInitialize() grabs nearly all user RAM and CDRAM for the
+// game heaps, so if GXM is initialised afterwards it fails with
+// SCE_GXM_ERROR_OUT_OF_MEMORY (0x805B0002). radMemorySpaceInitialize() therefore calls
+// radGxmEarlyInit() first (same order vitaGL uses), and gxmDisplay::InitDisplay() calls
+// it again as a no-op safety net.
+// ---------------------------------------------------------------------------
+static bool s_gxmInitialized = false;
+
+bool gxmDisplay::InitializeDriver(void)
+{
+    if(s_gxmInitialized)
+        return true;
+
+    // Try the default parameter buffer first, then progressively smaller ones so that
+    // a tight memory layout degrades gracefully instead of failing at boot.
+    static const uint32_t sizes[] = {
+        SCE_GXM_DEFAULT_PARAMETER_BUFFER_SIZE,
+        8u * 1024 * 1024,
+        4u * 1024 * 1024
+    };
+    for(uint32_t i = 0; i < sizeof(sizes) / sizeof(sizes[0]); ++i)
+    {
+        SceGxmInitializeParams params;
+        memset(&params, 0, sizeof(params));
+        params.flags = 0;
+        params.displayQueueMaxPendingCount = kNumColourBuffers - 1;
+        params.displayQueueCallback = displayCallback;
+        params.displayQueueCallbackDataSize = sizeof(DisplayData);
+        params.parameterBufferSize = sizes[i];
+        int err = sceGxmInitialize(&params);
+#ifdef RAD_LOG
+        rReleasePrintf("[gxm] sceGxmInitialize paramBuffer=%u KB -> 0x%08x\n", sizes[i] / 1024, (unsigned)err);
+#endif
+        if(err == SCE_OK)
+        {
+            s_gxmInitialized = true;
+            return true;
+        }
+        if(err != (int)SCE_GXM_ERROR_OUT_OF_MEMORY)
+            break;
+    }
+    return false;
+}
+
+// C entry point so radcore can call it without depending on pure3d headers.
+extern "C" bool radGxmEarlyInit(void)
+{
+    return gxmDisplay::InitializeDriver();
+}
 
 gxmDisplay::gxmDisplay(pddiDisplayInfo* info)
 {
@@ -76,6 +141,7 @@ gxmDisplay::~gxmDisplay()
     radMemorySpaceFreeAligned(radMemorySpace_Cdram, radMemoryGetCurrentAllocator(), depthBufferData);
     free(contextParams.hostMem);
     sceGxmTerminate();
+    s_gxmInitialized = false;
 
 #if SDL_MAJOR_VERSION < 3
     SDL_SetWindowGammaRamp(win, initialGammaRamp[0], initialGammaRamp[1], initialGammaRamp[2]);
@@ -361,7 +427,7 @@ pddiDisplayMode gxmDisplay::GetDisplayMode(void)
 
 int gxmDisplay::GetNumColourBuffer(void)
 {
-    return 3;
+    return kNumColourBuffers;
 }
 
 void gxmDisplay::GetGamma(float* r, float* g, float* b)

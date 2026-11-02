@@ -63,6 +63,11 @@
 //============================================================================
 
 #ifdef RAD_VITA
+#ifdef RAD_GXM
+// Defined in libs/pure3d/pddi/gxm/display.cpp. Weak so radcore still links when pure3d
+// is not part of the link (tools, tests).
+extern "C" bool radGxmEarlyInit( void ) __attribute__((weak));
+#endif
 SceUID g_User_UID, g_Cdram_UID;
 IRadMemoryHeap * g_pIRadMemoryHeap_User = NULL;
 IRadMemoryHeap * g_pIRadMemoryHeap_Cdram = NULL;
@@ -110,6 +115,18 @@ void radMemorySpaceInitialize( void )
     unsigned int cdramSize = CDRAM_SIZE_IN_BYTES;
 
 #ifdef RAD_GXM
+    // Initialise the GXM driver BEFORE the game heaps below take nearly all user RAM and
+    // CDRAM: sceGxmInitialize() needs its own driver memory and otherwise fails with
+    // SCE_GXM_ERROR_OUT_OF_MEMORY (0x805B0002). Failure is not fatal here, InitDisplay()
+    // retries and reports it.
+    if( radGxmEarlyInit != NULL )
+    {
+        bool ok = radGxmEarlyInit();
+#ifdef RAD_LOG
+        rReleasePrintf( "[mem] early GXM init: %s\n", ok ? "ok" : "FAILED" );
+#endif
+        (void)ok;
+    }
     {
         SceKernelFreeMemorySizeInfo info;
         info.size = sizeof( info );

@@ -77,6 +77,13 @@ protected:
 
     static void displayCallback( const void* callbackData );
 
+public:
+    // Initialises the GXM driver (idempotent). Called early from radcore, before the game
+    // heaps reserve most of the user RAM / CDRAM, and again from InitDisplay().
+    static bool InitializeDriver( void );
+    static const int kNumColourBuffers = 3;
+protected:
+
 private:
     pddiDisplayMode mode;
     int winWidth;
