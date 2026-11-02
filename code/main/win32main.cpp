@@ -139,24 +139,35 @@ static char            s_logChunk[LOG_CHUNK_SIZE];
 
 static unsigned LogDrain( bool flush )
 {
-    unsigned n = 0;
+    // The mutex only protects head/tail/dropped, and is held for a few instructions. The copy and
+    // the file write happen outside it: producers only write into the free part of the ring
+    // ([head, tail + SIZE)) and this function only reads [tail, head), so they never overlap.
+    // (Before, the 32 KB copy ran under the lock; this thread has the lowest priority, so a
+    // preempted drain could leave the game thread blocked in LockMutex for as long as it was starved.)
     sceKernelLockMutex( s_logMutex, 1, NULL );
-    unsigned avail = s_logHead - s_logTail;
-    if( avail > LOG_CHUNK_SIZE ) avail = LOG_CHUNK_SIZE;
-    for( n = 0; n < avail; n++ )
-    {
-        s_logChunk[n] = s_logRing[ ( s_logTail + n ) % LOG_RING_SIZE ];
-    }
-    s_logTail += n;
+    const unsigned head = s_logHead;
+    const unsigned tail = s_logTail;
     unsigned dropped = s_logDropped;
     s_logDropped = 0;
+    sceKernelUnlockMutex( s_logMutex, 1 );
+
+    unsigned avail = head - tail;
+    if( avail > LOG_CHUNK_SIZE ) avail = LOG_CHUNK_SIZE;
+    unsigned n;
+    for( n = 0; n < avail; n++ )
+    {
+        s_logChunk[n] = s_logRing[ ( tail + n ) % LOG_RING_SIZE ];
+    }
+
+    sceKernelLockMutex( s_logMutex, 1, NULL );
+    s_logTail = tail + n;
     sceKernelUnlockMutex( s_logMutex, 1 );
 
     if( s_pLogFile != NULL )
     {
         if( dropped != 0 )
         {
-            fprintf( s_pLogFile, "[log] %u bytes dropped (ring buffer full)\n", dropped );
+            fprintf( s_pLogFile, "[log] %u bytes dropped (ring buffer full or log busy)\n", dropped );
         }
         if( n != 0 )
         {
@@ -241,23 +252,32 @@ static void LogOutputFunction( void *userdata, int category, SDL_LogPriority pri
         else
         {
             const unsigned len = (unsigned)strlen( message );
-            sceKernelLockMutex( s_logMutex, 1, NULL );
-            if( ( s_logHead - s_logTail ) + len + 1 <= LOG_RING_SIZE )
+            // Never block the game / loader thread on the log: if the drain thread holds the
+            // mutex right now, drop the line instead of waiting for a lowest-priority thread.
+            if( sceKernelTryLockMutex( s_logMutex, 1 ) < 0 )
             {
-                for( unsigned i = 0; i < len; i++ )
-                {
-                    s_logRing[ ( s_logHead + i ) % LOG_RING_SIZE ] = message[i];
-                }
-                s_logRing[ ( s_logHead + len ) % LOG_RING_SIZE ] = '\n';
-                s_logHead += len + 1;
+                __sync_fetch_and_add( &s_logDropped, len + 1 );
             }
             else
             {
-                s_logDropped += len + 1;
+                if( ( s_logHead - s_logTail ) + len + 1 <= LOG_RING_SIZE )
+                {
+                    for( unsigned i = 0; i < len; i++ )
+                    {
+                        s_logRing[ ( s_logHead + i ) % LOG_RING_SIZE ] = message[i];
+                    }
+                    s_logRing[ ( s_logHead + len ) % LOG_RING_SIZE ] = '\n';
+                    s_logHead += len + 1;
+                }
+                else
+                {
+                    s_logDropped += len + 1;
+                }
+                sceKernelUnlockMutex( s_logMutex, 1 );
             }
-            sceKernelUnlockMutex( s_logMutex, 1 );
         }
     }
+
 #endif
 #else
     printf( "%s\n", message );

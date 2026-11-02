@@ -151,6 +151,7 @@ gxmContext::gxmContext(gxmDevice* dev, gxmDisplay* disp) : pddiBaseContext((pddi
     clearShader->AddRef();
     clearShader->SetInt(PDDI_SP_COLOURWRITE, PDDI_WRITE_NONE);
 
+    inScene = false;
     streamsTail = 0;
     streamsHead = SceGxmNotification{ sceGxmGetNotificationRegion() };
     memset(streams, 0, sizeof(streams));
@@ -221,6 +222,7 @@ void gxmContext::BeginFrame()
         display->GetColorSurface(),
         display->GetDepthSurface()
     ));
+    inScene = true;
 
     if(display->HasReset())
     {
@@ -237,7 +239,23 @@ void gxmContext::EndFrame()
     pddiBaseContext::EndFrame();
 
     CHK_GXM(sceGxmEndScene(context, &streamsHead, NULL));
+    inScene = false;
     CHK_GXM(sceGxmPadHeartbeat(display->GetColorSurface(), display->GetFragementSyncObj()));
+}
+
+// Block until the GPU is idle. Without this, GUI screens that unload a 3D model (phone booth /
+// rewards car preview, vehicle gallery, ...) freed its textures and vertex buffers while the
+// previous frame, still queued on the GPU, was reading them: the GPU faulted, the display
+// froze, the PS button stopped responding and only a hard reset helped (no crash dump, since
+// it is not a CPU exception).
+void gxmContext::DrawSync()
+{
+    if(inScene)
+    {
+        return;
+    }
+    CHK_GXM(sceGxmFinish(context));
+    CHK_GXM(sceGxmDisplayQueueFinish());
 }
 
 // buffer clearing

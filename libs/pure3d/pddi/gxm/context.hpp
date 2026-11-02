@@ -44,6 +44,13 @@ public :
     void BeginFrame();
     void EndFrame();
 
+    // Wait until the GPU has finished every submitted frame (and the display queue is empty).
+    // Must be called before freeing textures / vertex buffers / shaders that a frame still in
+    // flight may reference. The GXM backend never implemented it (the base class is a no-op),
+    // so the GUI's "p3d::pddi->DrawSync(); remove from inventory" pattern freed GPU memory under
+    // the GPU. Does nothing between BeginFrame() and EndFrame() (sceGxmFinish is illegal in a scene).
+    void DrawSync();
+
     // buffer clearing
     void Clear(unsigned bufferMask);
 
@@ -122,6 +129,7 @@ protected:
     gxmDevice* device;
     gxmDisplay* display;
     struct SceGxmContext* context;
+    bool inScene;               // true between sceGxmBeginScene and sceGxmEndScene
 
     gxmExtGamma* extGamma;
 
