@@ -88,9 +88,9 @@ void gxmProgram::SetProjectionMatrix(void* buffer, const pddiMatrix* matrix)
 
 void gxmProgram::SetModelViewMatrix(void* buffer, const pddiMatrix* matrix)
 {
-    if(modelview >= 0)
+    if(modelview != NULL)
         sceGxmSetUniformDataF(buffer, modelview, 0, 16, matrix->m[0]);
-    if(normalmatrix >= 0)
+    if(normalmatrix != NULL)
     {
         pddiMatrix inverse;
         inverse.Invert(*matrix);
@@ -119,7 +119,7 @@ void gxmProgram::SetTextureEnvironment(void* buffer, const gxmTextureEnv* texEnv
 
 void gxmProgram::SetAlphaTest(void* buffer, const gxmTextureEnv* texEnv)
 {
-    if(texEnv->alphaTest && alpharef >= 0)
+    if(texEnv->alphaTest && alpharef != NULL)
     {
         PDDIASSERT(texEnv->alphaCompareMode == PDDI_COMPARE_GREATER ||
             texEnv->alphaCompareMode == PDDI_COMPARE_GREATEREQUAL);
