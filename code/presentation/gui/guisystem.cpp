@@ -205,9 +205,11 @@ unsigned int g_scroobySimulationTime = 0;
 
 #ifdef RAD_VITA
 
-// Frontend UI files are read from ux0:data/simpsons (the current directory), like
-// the rest of the game data, so the VPK does not need to contain the art folder.
-#define PROJECT_DRIVE_SPEC
+// The Vita-adapted frontend Scrooby projects (art\\frontend\\scrooby\\*.p3d) are packaged in
+// the VPK ("art art" in CMakeLists.txt). The PC versions in ux0:data/simpsons have
+// different textures/lighting setup and a different PauseSettings page
+// (no InvertCamControl/Vibration groups -> NULL deref in CGuiScreenPauseSettings).
+#define PROJECT_DRIVE_SPEC "APP0:\\"
 
 #elif defined __SWITCH__
 

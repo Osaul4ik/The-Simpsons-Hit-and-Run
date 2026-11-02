@@ -57,8 +57,8 @@ CFLAGS_WARN="-Wno-error=implicit-function-declaration -Wno-error=int-conversion 
 	--disable-doc \
 	--disable-network \
 	--disable-everything \
-	--enable-decoder=theora,vp3,vorbis,aac,adpcm_ima_qt,alac,ape,ac3,cinepak,flac,mp3,mpeg4,opus,pcm_s16le,pcm_s24le,pcm_s32le,pcm_s8,pcm_u8,svq1,tta,wmalossless,wavpack \
-	--enable-demuxer=aac,ac3,aiff,ape,asf,avi,caf,cine,flac,matroska,mp3,mp4,m4a,pcm_s16le,pcm_s24le,pcm_s32le,pcm_s8,pcm_u8,ogg,opus,tta,wav,webm,wv \
+	--enable-decoder=theora,vp3,bink,binkaudio_dct,binkaudio_rdft,vorbis,aac,adpcm_ima_qt,alac,ape,ac3,cinepak,flac,mp3,mpeg4,opus,pcm_s16le,pcm_s24le,pcm_s32le,pcm_s8,pcm_u8,svq1,tta,wmalossless,wavpack \
+	--enable-demuxer=aac,ac3,aiff,ape,asf,avi,bink,caf,cine,flac,matroska,mp3,mp4,m4a,pcm_s16le,pcm_s24le,pcm_s32le,pcm_s8,pcm_u8,ogg,opus,tta,wav,webm,wv \
 	--enable-parser=aac,ac3,flac,h263,mpeg4video,mpegaudio,opus,vorbis \
 	--enable-protocol=file \
 	--enable-small \
