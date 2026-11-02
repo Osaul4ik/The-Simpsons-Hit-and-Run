@@ -7,6 +7,7 @@
 #include <p3d/utility.hpp>
 #include <p3d/camera.hpp>
 #include <p3d/light.hpp>
+#include <p3d/ambientlight.hpp>
 #include <p3d/error.hpp>
 #include <p3d/matrixstack.hpp>
 
@@ -151,11 +152,26 @@ void tView::BeginRender()
 
     p3d::stack->PushLoad(lightMat);
 
+    // Only real (directional/point) lights use a hardware light slot. An ambient light just
+    // sets the ambient colour, so it must not consume one of the few slots (PDDI_MAX_LIGHTS is 4
+    // on GXM, 8 on PC) or the last directional light of the sun group is silently dropped.
+    const int maxHwLights = p3d::pddi->GetMaxLights();
     int lightHandle = 0;
     for(int i=0; i < MAX_VIEW_LIGHTS; i++)
     {
-        if(activeLightList[i])
-            activeLightList[i]->Activate(lightHandle++);
+        tLight* light = activeLightList[i];
+        if(!light)
+            continue;
+
+        if(dynamic_cast<tAmbientLight*>(light) != NULL)
+        {
+            light->Activate(lightHandle); // no slot is used, the next light reuses this index
+        }
+        else if(lightHandle < maxHwLights)
+        {
+            light->Activate(lightHandle++);
+        }
+        // else: out of hardware slots, skip instead of issuing SetLight calls that are ignored
     }
 
     p3d::stack->Pop();
@@ -225,4 +241,3 @@ void tView::ScreenToView(const rmt::Vector& screen, rmt::Vector* view)
     view->y = (0.5f - ((0.5f - screen.y - t) / (b - t))) / aspect_ratio;
     view->z = screen.z;
 }
-
