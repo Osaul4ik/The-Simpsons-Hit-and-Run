@@ -99,7 +99,7 @@ class FePure3dObject :
         // the part of this object's window outside the inscribed ellipse is also written to the
         // depth buffer, so that geometry drawn afterwards cannot show up in the window corners
         // regardless of the shape of the hole mesh
-        void SetCircularDepthMask( bool enable ) { m_circularDepthMaskEnabled = enable; }
+        virtual void SetCircularDepthMask( bool enable ) { m_circularDepthMaskEnabled = enable; }
 
         virtual void SetWideScreenCorrectionEnabled( bool isEnabled ) { m_isWideScreenCorrectionEnabled = isEnabled; }
 

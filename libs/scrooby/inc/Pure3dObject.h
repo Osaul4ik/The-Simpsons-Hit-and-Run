@@ -87,6 +87,7 @@ class Pure3dObject
         virtual void SetColourWrite( bool enable ) = 0;
         virtual void SetClearDepthBuffer( bool enable ) = 0;
         virtual void SetZBufferEnabled( bool enable ) = 0;
+        virtual void SetCircularDepthMask( bool enable ) = 0;
 
         virtual void SetWideScreenCorrectionEnabled( bool isEnabled ) = 0;
 
