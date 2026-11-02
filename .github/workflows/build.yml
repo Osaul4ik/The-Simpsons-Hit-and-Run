@@ -54,15 +54,24 @@ jobs:
         uses: actions/checkout@v4
 
       # The art folder (Vita-adapted frontend p3d files, taken from the original VPK) is
-      # game data: it is NOT stored in this repo. It lives in a private repo and is
-      # fetched with a read-only token (repo secret ASSETS_TOKEN).
+      # game data: it is NOT stored in this repo. It lives in the private repo
+      # Osaul4ik/simpsons_art and is fetched with a read-only deploy key whose private
+      # half is stored in the repo secret ART_DEPLOY_KEY.
       - name: Fetch art directory (private repo)
         env:
-          ASSETS_TOKEN: ${{ secrets.ASSETS_TOKEN }}
+          ART_DEPLOY_KEY: ${{ secrets.ART_DEPLOY_KEY }}
         run: |
-          test -n "$ASSETS_TOKEN" || { echo "::error::Secret ASSETS_TOKEN is not set"; exit 1; }
-          git clone --depth 1 "https://x-access-token:${ASSETS_TOKEN}@github.com/Osaul4ik/srr2-assets.git" /tmp/assets
-          cp -r /tmp/assets/art art
+          test -n "$ART_DEPLOY_KEY" || { echo "::error::Secret ART_DEPLOY_KEY is not set"; exit 1; }
+          command -v ssh >/dev/null || { apt-get update -qq && apt-get install -y -qq openssh-client; }
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$ART_DEPLOY_KEY" > ~/.ssh/art_key
+          chmod 600 ~/.ssh/art_key
+          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+          GIT_SSH_COMMAND="ssh -i ~/.ssh/art_key -o IdentitiesOnly=yes" \\
+            git clone --depth 1 git@github.com:Osaul4ik/simpsons_art.git /tmp/assets
+          rm -f ~/.ssh/art_key
+          if [ -d /tmp/assets/art ]; then cp -r /tmp/assets/art art; \\
+          else mkdir art && cp -r /tmp/assets/. art/ && rm -rf art/.git; fi
           test -d art/frontend/scrooby
 
       # The FFmpeg from vitasdk/vdpm has no Theora decoder, so the .rmv movies
