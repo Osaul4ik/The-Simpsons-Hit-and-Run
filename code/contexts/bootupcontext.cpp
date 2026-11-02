@@ -11,7 +11,12 @@
 
 #ifdef RAD_RELEASE
     #ifndef RAD_E3
-        #define SHOW_MOVIES
+        // The Vita port skips the publisher logo movies (VUG, Fox, Gracie, Radical):
+        // each one costs a movie load and a black screen before the license screen.
+        // The intro movie is started separately by the frontend (SHOW_INTRO_MOVIE).
+        #ifndef RAD_VITA
+            #define SHOW_MOVIES
+        #endif
     #endif
 #endif
 
@@ -610,4 +615,3 @@ BootupContext::~BootupContext()
     }
     spInstance = NULL;
 }
-

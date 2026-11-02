@@ -251,7 +251,14 @@ bool pglTexture::Create(int x, int y, int bpp, int alphaDepth, int nMip, pddiTex
     }
 
     // TODO palletized
-    if (textureType == PDDI_TEXTYPE_PALETTIZED)
+    // Lock() always hands out 4 bytes per pixel and SetGLState() uploads every
+    // uncompressed texture as 32-bit BGRA, so palettized textures and 16-bit RGB
+    // textures (the P3D header asks for them through desiredDepth) must be stored
+    // as 32-bit too. With bpp == 16 the buffer below was only w*h*2 bytes while the
+    // loader wrote rows with a w*4 pitch (heap overrun), and the 16-bit pixel
+    // formats have no GL enum on the Vita (PickPixelFormat returned GL_INVALID_ENUM).
+    if (textureType == PDDI_TEXTYPE_PALETTIZED ||
+        (textureType == PDDI_TEXTYPE_RGB && bpp < 32))
     {
         textureType = PDDI_TEXTYPE_RGB;
         bpp = 32;
@@ -368,8 +375,11 @@ pddiLockInfo* pglTexture::Lock(int mipMap, pddiRect* rect)
 {
     PDDIASSERT(mipMap <= nMipMap);
 
-    lock.width = 1 << (log2X-mipMap);
-    lock.height = 1 << (log2Y-mipMap);
+    // Not 1 << (log2X-mipMap): non power of 2 textures are allowed on the Vita
+    // (see Create) and have log2X == -1, which made lock.width 0 so the loader
+    // never wrote any pixels into the (uninitialised) buffer.
+    lock.width = (xSize >> mipMap) > 0 ? (xSize >> mipMap) : 1;
+    lock.height = (ySize >> mipMap) > 0 ? (ySize >> mipMap) : 1;
     if (lock.format == PDDI_PIXEL_DXT1 || lock.format == PDDI_PIXEL_DXT3 || lock.format == PDDI_PIXEL_DXT5)
     {
         unsigned int blocksize = lock.format == PDDI_PIXEL_DXT1 ? 8 : 16;
@@ -428,5 +438,3 @@ int pglTexture::GetPalette(pddiColour* palette)
 {
     return 0;
 }
-
-

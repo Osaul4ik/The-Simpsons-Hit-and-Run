@@ -262,11 +262,15 @@ void radMoviePlayer::Load( const char * pVideoFileName, unsigned int audioTrackI
     // window; the logo movies are tiny low-bitrate files, so 512 KB holds hundreds of
     // 720p frames, i.e. ~25 s of 100% CPU per movie on the Vita. Skip it when the
     // video stream is already fully described.
+    // The Bink demuxer (intro.rmv) fills in codec, size, extradata and the audio
+    // parameters from its file header as well; probing it took ~37 s on the Vita
+    // (open=6ms probe=37595ms in log.txt) before the intro could start.
     bool needProbe = true;
     for( unsigned int i = 0; i < m_pFormatCtx->nb_streams; ++i )
     {
         const AVCodecParameters* p = m_pFormatCtx->streams[i]->codecpar;
-        if( p->codec_type == AVMEDIA_TYPE_VIDEO && p->codec_id == AV_CODEC_ID_THEORA &&
+        if( p->codec_type == AVMEDIA_TYPE_VIDEO &&
+            ( p->codec_id == AV_CODEC_ID_THEORA || p->codec_id == AV_CODEC_ID_BINKVIDEO ) &&
             p->width > 0 && p->height > 0 && p->extradata_size > 0 )
         {
             needProbe = false;
