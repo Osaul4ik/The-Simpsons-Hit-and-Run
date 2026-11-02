@@ -36,6 +36,12 @@ public:
 
     static void SetYieldTime(unsigned ms);
 
+    // Vita only (no-op elsewhere). 'true' on loading screens: the loader thread gets long
+    // slices and sleeps briefly while waiting for I/O instead of handing a whole frame back
+    // to the main thread. 'false' in gameplay: short slices, so streaming does not hurt the
+    // frame rate.
+    static void SetLoadingMode(bool loading);
+
 protected:
 
     IRadFile*    m_pIRadFile;
@@ -79,4 +85,3 @@ protected:
 };
 
 #endif
-

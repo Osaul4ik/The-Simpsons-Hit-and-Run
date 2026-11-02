@@ -21,14 +21,53 @@ static const int CACHE_SIZE = 192 * 1024;
 static const int CYCLE_SIZE = 8192;
 static const int COMPRESSED_BLOCK_SIZE = 4096;
 
+#ifdef RAD_VITA
+#include <psp2/kernel/threadmgr.h>
+#endif
+
 static radTime64 gLastTime = 0;
 #ifdef RAD_XBOX
-static const unsigned gYieldTime = 2500;  // microseconds
+static unsigned gYieldTime = 2500;  // microseconds
 #elif defined(RAD_VITA)
-static const unsigned gYieldTime = 8500;  // microseconds
-#else
-static const unsigned gYieldTime = 5200;  // microseconds
+// How long the loader thread may run before it hands control back to the main thread.
+// The old fixed 8500 us gave the loader about half a frame on loading screens.
+// The game starts on loading screens (entry/bootup), GameFlow switches to the gameplay value.
+#ifndef RAD_VITA_LOAD_YIELD_LOADING_US
+#define RAD_VITA_LOAD_YIELD_LOADING_US 25000
 #endif
+#ifndef RAD_VITA_LOAD_YIELD_GAMEPLAY_US
+#define RAD_VITA_LOAD_YIELD_GAMEPLAY_US 4000
+#endif
+// Sleep granularity while waiting for the drive thread inside the loader's slice.
+#ifndef RAD_VITA_LOAD_WAIT_SLEEP_US
+#define RAD_VITA_LOAD_WAIT_SLEEP_US 300
+#endif
+static unsigned gYieldTime = RAD_VITA_LOAD_YIELD_LOADING_US;  // microseconds
+static bool gSleepWhileWaiting = true;
+#else
+static unsigned gYieldTime = 5200;  // microseconds
+#endif
+
+// radTimeGetMicroseconds64() is a system call on the Vita, so the time is only read every
+// (mask + 1) calls of GetData / per token of Decompress. Everywhere else it is read every time.
+#ifdef RAD_VITA
+#define YIELD_CHECK_MASK 255u
+#else
+#define YIELD_CHECK_MASK 0u
+#endif
+static unsigned gYieldTick = 0;
+
+// Gives control back to the main thread when the loader's slice has expired.
+static inline void YieldIfSliceExpired()
+{
+    radTime64 now = radTimeGetMicroseconds64();
+    radTime64 elapsed = now - gLastTime;
+    if( elapsed >= gYieldTime )
+    {
+        p3d::loadManager->SwitchTask();
+        gLastTime = radTimeGetMicroseconds64();
+    }
+}
 
 static char globalCache[ (CACHE_SIZE * 2) + 1024];
 
@@ -42,7 +81,22 @@ static char globalCache[ (CACHE_SIZE * 2) + 1024];
 //--------------------------------------------------------------------------
 void tFileFTT::SetYieldTime(unsigned ms)
 {
-    // nv:  nop
+#ifdef RAD_VITA
+    gYieldTime = ms * 1000;
+#else
+    (void)ms; // nv:  nop
+#endif
+}
+
+//--------------------------------------------------------------------------
+void tFileFTT::SetLoadingMode(bool loading)
+{
+#ifdef RAD_VITA
+    gYieldTime = loading ? RAD_VITA_LOAD_YIELD_LOADING_US : RAD_VITA_LOAD_YIELD_GAMEPLAY_US;
+    gSleepWhileWaiting = loading;
+#else
+    (void)loading;
+#endif
 }
 
 //--------------------------------------------------------------------------
@@ -168,6 +222,16 @@ void tFileFTT::WaitForCompletion( void )
     unsigned int time = radTimeGetMicroseconds64();
     while(!m_pIRadFile->CheckForCompletion())
     {
+#ifdef RAD_VITA
+        // On loading screens, wait for the drive thread inside the loader's own slice.
+        // Handing the whole frame back (SwitchTask) turns an I/O wait of 1-3 ms into
+        // 12-16 ms. The request is completed by the drive thread, so sleeping is safe.
+        if( gSleepWhileWaiting && ( radTimeGetMicroseconds64() - gLastTime ) < gYieldTime )
+        {
+            sceKernelDelayThread( RAD_VITA_LOAD_WAIT_SLEEP_US );
+            continue;
+        }
+#endif
         i++;
         p3d::loadManager->SwitchTask();
         gLastTime = radTimeGetMicroseconds64();
@@ -241,12 +305,9 @@ bool tFileFTT::GetData(void* buf, unsigned count, DataType type)
     // enough time to process in a given thread instance
     // if so cycle to the main thread
 
-    radTime64 now = radTimeGetMicroseconds64();
-    radTime64 elapsed = now - gLastTime;
-    if( elapsed >= gYieldTime )
+    if( ( ++gYieldTick & YIELD_CHECK_MASK ) == 0 )
     {
-        p3d::loadManager->SwitchTask();
-        gLastTime = radTimeGetMicroseconds64();
+        YieldIfSliceExpired();
     }
 
     return true;
@@ -325,12 +386,9 @@ void tFileFTT::Decompress (const unsigned char* input, unsigned int inputsize,
 
     while(outputcount < outputsize)
     {
-        radTime64 now = radTimeGetMicroseconds64();
-        radTime64 elapsed = now - gLastTime;
-        if( elapsed >= gYieldTime )
+        if( ( ++gYieldTick & YIELD_CHECK_MASK ) == 0 )
         {
-            p3d::loadManager->SwitchTask();
-            gLastTime = radTimeGetMicroseconds64();
+            YieldIfSliceExpired();
         }
 
         unsigned int code = *input++;

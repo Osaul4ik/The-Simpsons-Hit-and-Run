@@ -40,6 +40,10 @@
 #include <memory/memoryutilities.h>
 #include <memory/srrmemory.h>
 
+#ifdef RAD_VITA
+#include <p3d/fileftt.hpp>
+#endif
+
 //******************************************************************************
 //
 // Global Data, Local Data, Local Classes
@@ -265,8 +269,22 @@ void GameFlow::OnTimerDone( unsigned int elapsedtime, void* pUserData )
     {
         mpContexts[mCurrentContext]->Stop( mNextContext );
         mpContexts[mNextContext]->Start( mCurrentContext );
-        
+
         mCurrentContext = mNextContext;
+
+#ifdef RAD_VITA
+        //
+        // Loading screens: the loader thread gets long slices and sleeps while it waits
+        // for I/O. Everywhere else it gets short slices so streaming (dynamic zones)
+        // does not hurt the frame rate.
+        //
+        const bool loadingScreen = ( mCurrentContext == CONTEXT_ENTRY ||
+                                     mCurrentContext == CONTEXT_BOOTUP ||
+                                     mCurrentContext == CONTEXT_LOADING_DEMO ||
+                                     mCurrentContext == CONTEXT_LOADING_SUPERSPRINT ||
+                                     mCurrentContext == CONTEXT_LOADING_GAMEPLAY );
+        tFileFTT::SetLoadingMode( loadingScreen );
+#endif
     }
 
     //////////////////////////////////////////////////
