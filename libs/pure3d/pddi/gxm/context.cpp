@@ -1138,7 +1138,7 @@ void gxmContext::SetTextureEnvironment(const gxmTextureEnv* texEnv, gxmProgram* 
     for(int i = 0; i < PDDI_MAX_LIGHTS; i++)
         vertexProgram->SetLightState(vertexUniformBuffer, i, &state.lightingState->light[i], texEnv->lit, texEnv->shininess);
     vertexProgram->SetAmbientLight(vertexUniformBuffer, state.lightingState->ambient);
-    vertexProgram->SetModelViewMatrix(vertexUniformBuffer, state.matrixStack[PDDI_MATRIX_MODELVIEW]->Top());
+    vertexProgram->SetModelViewMatrix(vertexUniformBuffer, state.matrixStack[PDDI_MATRIX_MODELVIEW]->Top(), texEnv->lit);
     vertexProgram->SetProjectionMatrix(vertexUniformBuffer, &projection);
     vertexProgram->SetTextureEnvironment(vertexUniformBuffer, texEnv);
     if (texEnv->alphaTest)

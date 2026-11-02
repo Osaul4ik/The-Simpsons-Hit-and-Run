@@ -2,6 +2,7 @@
 // Copyright (c) 2002 Radical Games Ltd.  All rights reserved.
 //=============================================================================
 
+#include <string.h>
 #include <pddi/gxm/gxm.hpp>
 #include <pddi/gxm/program.hpp>
 #include <pddi/gxm/material.hpp>
@@ -86,16 +87,29 @@ void gxmProgram::SetProjectionMatrix(void* buffer, const pddiMatrix* matrix)
         sceGxmSetUniformDataF(buffer, projection, 0, 16, matrix->m[0]);
 }
 
-void gxmProgram::SetModelViewMatrix(void* buffer, const pddiMatrix* matrix)
+void gxmProgram::SetModelViewMatrix(void* buffer, const pddiMatrix* matrix, bool needNormalMatrix)
 {
     if(modelview != NULL)
         sceGxmSetUniformDataF(buffer, modelview, 0, 16, matrix->m[0]);
-    if(normalmatrix != NULL)
+
+    // The normal matrix is only read by the lighting loop. Unlit draws set every light to
+    // "disabled" (position.w < 0), so the shader never touches it and the 4x4 inverse can be skipped.
+    if(normalmatrix != NULL && needNormalMatrix)
     {
-        pddiMatrix inverse;
-        inverse.Invert(*matrix);
-        inverse.Transpose();
-        sceGxmSetUniformDataF(buffer, normalmatrix, 0, 16, inverse.m[0]);
+        // Consecutive draws very often use the same modelview (several materials per object,
+        // multi-pass), so remember the last inverse-transpose instead of recomputing it.
+        static pddiMatrix cachedSource;
+        static pddiMatrix cachedNormal;
+        static bool cacheValid = false;
+
+        if(!cacheValid || memcmp(&cachedSource, matrix, sizeof(pddiMatrix)) != 0)
+        {
+            cachedSource = *matrix;
+            cachedNormal.Invert(*matrix);
+            cachedNormal.Transpose();
+            cacheValid = true;
+        }
+        sceGxmSetUniformDataF(buffer, normalmatrix, 0, 16, cachedNormal.m[0]);
     }
 }
 
@@ -159,6 +173,12 @@ void gxmProgram::SetLightState( void* buffer, int handle, const pddiLight* light
     }
 
     sceGxmSetUniformDataF(buffer, lights[handle].position, 0, 4, dir);
+
+    // A disabled light (position.w < 0) is skipped by the shader before its colour and
+    // attenuation are read, so those uniforms are only written for lights that contribute.
+    if(dir[3] < 0.0f)
+        return;
+
     UniformColour(buffer, lights[handle].colour, lightState->colour);
     float attenuation[] = { lightState->attenA, lightState->attenB, lightState->attenC, shininess };
     sceGxmSetUniformDataF(buffer, lights[handle].attenuation, 0, 4, attenuation);

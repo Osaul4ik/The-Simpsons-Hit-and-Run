@@ -24,7 +24,7 @@ public:
     const SceGxmProgram* GetProgram() { return program; }
 
     void SetProjectionMatrix( void* buffer, const pddiMatrix* matrix );
-    void SetModelViewMatrix( void* buffer, const pddiMatrix* matrix );
+    void SetModelViewMatrix( void* buffer, const pddiMatrix* matrix, bool needNormalMatrix = true );
     void SetTextureEnvironment( void* buffer, const gxmTextureEnv* texEnv );
     void SetAlphaTest( void* buffer, const gxmTextureEnv* texEnv );
     void SetLightState( void* buffer, int handle, const pddiLight* lightState, bool enabled, float shininess );
