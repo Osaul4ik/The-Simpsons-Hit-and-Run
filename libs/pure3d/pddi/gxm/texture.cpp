@@ -28,6 +28,11 @@
 
 // Opaque static RGB textures are stored as RGB565 (half the memory of RGB888).
 // Build with -DRAD_GXM_TEXTURE_RGB565=0 to keep them 32 bit.
+// Build with -DRAD_GXM_TEXTURE_P8=0 to expand palettized textures to 32 bit again.
+#ifndef RAD_GXM_TEXTURE_P8
+#define RAD_GXM_TEXTURE_P8 1
+#endif
+
 #ifndef RAD_GXM_TEXTURE_RGB565
 #define RAD_GXM_TEXTURE_RGB565 1
 #endif
@@ -157,7 +162,16 @@ bool gxmTexture::Create(int x, int y, int bpp, int alphaDepth, int nMip, pddiTex
     }
 
     // 4 and 8 bit palettized textures are both stored as P8 (indices one per byte).
-    const bool palettized = (textureType == PDDI_TEXTYPE_PALETTIZED);
+    bool palettized = (textureType == PDDI_TEXTYPE_PALETTIZED);
+#if !RAD_GXM_TEXTURE_P8
+    if (palettized)
+    {
+        // old behaviour: the loader depalettizes into a 32 bit RGB texture
+        palettized = false;
+        textureType = PDDI_TEXTYPE_RGB;
+        bpp = 32;
+    }
+#endif
     opaquePalette = (alphaDepth == 0);
     if (palettized)
     {
@@ -219,9 +233,22 @@ bool gxmTexture::Create(int x, int y, int bpp, int alphaDepth, int nMip, pddiTex
         if(compressed || yuv)
             break;
 
+        // sceGxmTextureGetStride is only documented for linear-strided textures, so don't
+        // trust it blindly: accept it only when it is a plausible row size, otherwise keep
+        // the 8-pixel-aligned stride that GXM uses for plain linear textures.
         const int realStride = (int)sceGxmTextureGetStride(&texture);
+        const int minStride = xSize * (bpp / 8);
+#ifdef RAD_LOG
+        static int s_strideLogs = 0;
+        if(s_strideLogs++ < 12)
+            rReleasePrintf("[gxm] texture %dx%d bpp=%d fmt=%d stride guess=%d gxm=%d\n", xSize, ySize, bpp, (int)lock.format, stride, realStride);
+#endif
+        if(realStride < minStride || (realStride & 3) != 0 || realStride > stride * 2 || realStride == stride)
+            break;
+
         if(size_t(realStride) * ySize <= size)
         {
+            // smaller but valid: GPU reads rows at this pitch, so write them at it too
             stride = realStride;
             break;
         }
