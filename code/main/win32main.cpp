@@ -34,10 +34,12 @@ unsigned int sceLibcHeapSize = 16 * 1024 * 1024;
 // Size of the newlib heap backing malloc/new, read by vitasdk's sbrk at startup.
 // The app has 368 MB of user memory in extended memory mode (ATTRIBUTE2=12, see
 // CMakeLists.txt). The heap gets what is left after the other fixed user blocks
-// (32 MB radMemorySpace user block, 16 MB sceLibc heap, executable, thread stacks,
-// system modules and vitaGL), so keep this well below 368 MB. vitaGL takes all
-// the remaining user RAM (minus its 16 MB threshold) for its texture pool when
-// vglInit() runs, so leave at least ~100 MB free here or the screen stays black.
+// (radMemorySpace user block, 16 MB sceLibc heap, executable, thread stacks and
+// system modules), so keep it well below 368 MB. See the memory budget in CMakeLists.txt.
+// With the vitaGL backend, vitaGL takes all the remaining user RAM (minus its 16 MB
+// threshold) for its texture pool when vglInit() runs, so leave at least ~100 MB free
+// there or the screen stays black. The GXM backend does not do that: its memory is
+// the radMemorySpace user and CDRAM blocks (libs/radcore/.../memoryspacewin32.cpp).
 #ifndef RAD_VITA_HEAP_MB
 #define RAD_VITA_HEAP_MB 192
 #endif

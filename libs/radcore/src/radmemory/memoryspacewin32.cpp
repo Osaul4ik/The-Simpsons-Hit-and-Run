@@ -28,11 +28,32 @@
 
 #include "memoryspacewin32.hpp"
 
-// Nothing allocates from radMemorySpace_User/Cdram, and vitaGL needs this RAM/CDRAM,
-// so keep these blocks tiny on the Vita.
+#ifdef RAD_VITA
+#ifdef RAD_GXM
+// Native GXM backend: textures, display/depth buffers and CDRAM-resident data live in
+// radMemorySpace_Cdram (all the VRAM except RAD_VITA_GXM_CDRAM_RESERVE_KB, which GXM
+// needs for its own driver allocations), and vertex data, ring buffers and the
+// overflow of textures live in radMemorySpace_User (GPU-readable RAM).
+// vitaGL is not linked in this configuration, so nothing else competes for this memory.
+#ifndef RAD_VITA_GXM_USER_MB
+#define RAD_VITA_GXM_USER_MB 80
+#endif
+#ifndef RAD_VITA_GXM_CDRAM_RESERVE_KB
+#define RAD_VITA_GXM_CDRAM_RESERVE_KB 8192
+#endif
+#define USER_SIZE_IN_BYTES ( 1024 * 1024 * RAD_VITA_GXM_USER_MB )
+#define CDRAM_SIZE_IN_BYTES ( 1024 * 1024 * 16 ) // fallback if the free size cannot be queried
+#else
+// vitaGL builds: nothing allocates from radMemorySpace_User/Cdram, and vitaGL needs
+// this RAM/CDRAM, so keep these blocks tiny.
 #define USER_SIZE_IN_BYTES ( 1024 * 1024 * 1 )
-#define MAX_USER_ALLOCATIONS 100
 #define CDRAM_SIZE_IN_BYTES ( 1024 * 1024 * 1 )
+#endif
+#else
+#define USER_SIZE_IN_BYTES ( 1024 * 1024 * 1 )
+#define CDRAM_SIZE_IN_BYTES ( 1024 * 1024 * 1 )
+#endif
+#define MAX_USER_ALLOCATIONS 100
 #define MAX_CDRAM_ALLOCATIONS 100
 
 //============================================================================
@@ -56,33 +77,77 @@ unsigned int radMemorySpace_OptimalAlignment = 4;
 
 MemorySpaceAsyncRequest_Copy g_MemorySpaceAsyncRequest_Copy_Placeholder;
 
+#ifdef RAD_VITA
+// Allocates a memblock of up to 'size' bytes. If the kernel refuses, retries with
+// smaller sizes (in 'step' decrements) down to 'minSize' so that a slightly different
+// memory layout degrades gracefully instead of crashing at boot.
+static SceUID AllocBlockWithFallback( const char* name, SceKernelMemBlockType type,
+                                      unsigned int* size, unsigned int step, unsigned int minSize )
+{
+    for( ;; )
+    {
+        SceUID uid = sceKernelAllocMemBlock( name, type, *size, NULL );
+        if( uid >= SCE_OK )
+        {
+            return uid;
+        }
+        if( *size <= minSize + step )
+        {
+            return uid;
+        }
+        *size -= step;
+    }
+}
+#endif
+
 void radMemorySpaceInitialize( void )
 {
 #ifdef RAD_VITA
     int err = SCE_OK;
     void* mem = NULL;
 
-    g_User_UID = sceKernelAllocMemBlock("user",
-                                        SCE_KERNEL_MEMBLOCK_TYPE_USER_RW_UNCACHE,
-                                        USER_SIZE_IN_BYTES, NULL);
+    unsigned int userSize = USER_SIZE_IN_BYTES;
+    unsigned int cdramSize = CDRAM_SIZE_IN_BYTES;
+
+#ifdef RAD_GXM
+    {
+        SceKernelFreeMemorySizeInfo info;
+        info.size = sizeof( info );
+        if( sceKernelGetFreeMemorySize( &info ) >= 0 )
+        {
+            const unsigned int reserve = RAD_VITA_GXM_CDRAM_RESERVE_KB * 1024;
+            if( info.size_cdram > reserve )
+            {
+                // CDRAM memblocks must be a multiple of 256 KB
+                cdramSize = ( info.size_cdram - reserve ) & ~( 256 * 1024 - 1 );
+            }
+        }
+    }
+#endif
+
+    g_User_UID = AllocBlockWithFallback( "user", SCE_KERNEL_MEMBLOCK_TYPE_USER_RW_UNCACHE,
+                                         &userSize, 1024 * 1024, 1024 * 1024 );
     rAssert(g_User_UID >= SCE_OK);
 
     err = sceKernelGetMemBlockBase(g_User_UID, &mem);
     rAssert(err == SCE_OK);
 
     g_pIRadMemoryHeap_User = radMemoryCreateDougLeaHeap(
-        mem, USER_SIZE_IN_BYTES, RADMEMORY_ALLOC_DEFAULT, "user");
+        mem, userSize, RADMEMORY_ALLOC_DEFAULT, "user");
 
-    g_Cdram_UID = sceKernelAllocMemBlock("cdram",
-                                         SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW,
-                                         CDRAM_SIZE_IN_BYTES, NULL);
+    g_Cdram_UID = AllocBlockWithFallback( "cdram", SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW,
+                                          &cdramSize, 1024 * 1024, 1024 * 1024 );
     rAssert(g_Cdram_UID >= SCE_OK);
 
     err = sceKernelGetMemBlockBase(g_Cdram_UID, &mem);
     rAssert(err == SCE_OK);
 
     g_pIRadMemoryHeap_Cdram = radMemoryCreateDougLeaHeap(
-        mem, CDRAM_SIZE_IN_BYTES, RADMEMORY_ALLOC_DEFAULT, "cdram");
+        mem, cdramSize, RADMEMORY_ALLOC_DEFAULT, "cdram");
+
+#ifdef RAD_LOG
+    rReleasePrintf( "[mem] radMemorySpace: user=%u KB cdram=%u KB\n", userSize / 1024, cdramSize / 1024 );
+#endif
 #endif
 }
 
@@ -108,6 +173,15 @@ void radMemorySpaceTerminate( void )
     rAssert(err == SCE_OK);
 #endif
 }
+
+#if defined( RAD_VITA ) && defined( RAD_GXM )
+// Texture memory that does not fit in CDRAM spills into the (GPU-readable) user block.
+static bool IsInUserBlock( void* p )
+{
+    char* start = (char*)g_pIRadMemoryHeap_User->GetStartOfMemory();
+    return (char*)p >= start && (char*)p < start + g_pIRadMemoryHeap_User->GetSize();
+}
+#endif
 
 //============================================================================
 // radMemoryCopyAsync
@@ -174,7 +248,14 @@ void * radMemorySpaceAlloc( radMemorySpace space, radMemoryAllocator allocator, 
     }
     else if(space == radMemorySpace_Cdram)
     {
-        return g_pIRadMemoryHeap_Cdram->GetMemory( numBytes );
+        void* p = g_pIRadMemoryHeap_Cdram->GetMemory( numBytes );
+#ifdef RAD_GXM
+        if( p == NULL )
+        {
+            p = g_pIRadMemoryHeap_User->GetMemory( numBytes );
+        }
+#endif
+        return p;
     }
 #endif
 	return ::radMemoryAlloc( allocator, numBytes );
@@ -199,7 +280,14 @@ void * radMemorySpaceAllocAligned
     }
     else if(space == radMemorySpace_Cdram)
     {
-        return g_pIRadMemoryHeap_Cdram->GetMemoryAligned( numBytes, alignment );
+        void* p = g_pIRadMemoryHeap_Cdram->GetMemoryAligned( numBytes, alignment );
+#ifdef RAD_GXM
+        if( p == NULL )
+        {
+            p = g_pIRadMemoryHeap_User->GetMemoryAligned( numBytes, alignment );
+        }
+#endif
+        return p;
     }
 #endif
 	return ::radMemoryAllocAligned( allocator, numBytes, alignment );
@@ -244,6 +332,12 @@ void radMemorySpaceFree
     }
     else if(space == radMemorySpace_Cdram)
     {
+#ifdef RAD_GXM
+        if( pMemory != NULL && IsInUserBlock( pMemory ) )
+        {
+            return g_pIRadMemoryHeap_User->FreeMemory( pMemory );
+        }
+#endif
         return g_pIRadMemoryHeap_Cdram->FreeMemory( pMemory );
     }
 #endif
@@ -268,6 +362,12 @@ void radMemorySpaceFreeAligned
     }
     else if(space == radMemorySpace_Cdram)
     {
+#ifdef RAD_GXM
+        if( pMemory != NULL && IsInUserBlock( pMemory ) )
+        {
+            return g_pIRadMemoryHeap_User->FreeMemoryAligned( pMemory );
+        }
+#endif
         return g_pIRadMemoryHeap_Cdram->FreeMemoryAligned( pMemory );
     }
 #endif

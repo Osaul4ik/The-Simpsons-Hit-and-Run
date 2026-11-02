@@ -16,9 +16,26 @@ option(SRR2_BUILD_TESTS "Build sample programs for internal libraries" ON)
 option(SRR2_MICROPROFILE "Use microprofile instead of the internal profiler" OFF)
 option(SRR2_P3D_CG "Use CG shaders rather than GLSL for OpenGL ES" OFF)
 option(SRR2_LOG "Enable release debug output and asserts output (written to ux0:data/simpsons/log.txt on the Vita)" OFF)
-set(SRR2_P3D_PDDI "OpenGL" CACHE STRING "Pure3D PDDI implementation")
 if(VITA)
-	option(SRR2_USE_VITAGL "Use VitaGL as an OpenGL (ES) implementation" ON)
+	# The native GXM backend is the default on the Vita: it talks to the GPU directly and
+	# lets the game place textures in all of the 128 MB of VRAM (CDRAM). The OpenGL/GLES
+	# backends only work on the Vita through vitaGL, which is much slower and takes over
+	# all of the device memory.
+	set(SRR2_P3D_PDDI "GXM" CACHE STRING "Pure3D PDDI implementation")
+else()
+	set(SRR2_P3D_PDDI "OpenGL" CACHE STRING "Pure3D PDDI implementation")
+endif()
+if(VITA)
+	if(SRR2_P3D_PDDI STREQUAL "GXM")
+		set(_SRR2_VITAGL_DEFAULT OFF)
+	else()
+		set(_SRR2_VITAGL_DEFAULT ON)
+	endif()
+	option(SRR2_USE_VITAGL "Use VitaGL as an OpenGL (ES) implementation" ${_SRR2_VITAGL_DEFAULT})
+	if(SRR2_P3D_PDDI STREQUAL "GXM" AND SRR2_USE_VITAGL)
+		message(WARNING "SRR2_P3D_PDDI=GXM does not use vitaGL: forcing SRR2_USE_VITAGL=OFF")
+		set(SRR2_USE_VITAGL OFF CACHE BOOL "" FORCE)
+	endif()
 	set_property(CACHE SRR2_P3D_PDDI PROPERTY STRINGS "OpenGL" "GLES1" "GLES2" "GXM")
 else()
 	set_property(CACHE SRR2_P3D_PDDI PROPERTY STRINGS "OpenGL" "GLES1" "GLES2")
@@ -37,8 +54,17 @@ if(VITA)
 	# Optional version string to show in LiveArea's more info screen
 	set(VITA_VERSION ${SRR2_VERSION})
 	# Size of the newlib heap (backing malloc/new) in MB, see code/main/win32main.cpp
+	# Memory budget of the 368 MB (GXM backend), measured from the boot log:
+	#   newlib heap (SRR2_VITA_HEAP_MB)          192 MB   malloc/new, game heaps
+	#   sceLibc heap + executable + stacks      ~17 MB
+	#   foundation init (audio, file cache...)  ~37 MB
+	#   radMemorySpace user block (below)        80 MB   GPU-readable: vertex data, GXM rings, texture overflow
+	#   -> ~40 MB left as headroom
+	# The 128 MB of CDRAM is taken at runtime: all of it except 8 MB for GXM (radmemory).
 	set(SRR2_VITA_HEAP_MB 192 CACHE STRING "Vita newlib heap size in MB")
 	add_definitions(-DRAD_VITA_HEAP_MB=${SRR2_VITA_HEAP_MB})
+	set(SRR2_VITA_GXM_USER_MB 80 CACHE STRING "GXM backend: GPU-readable user RAM block in MB")
+	add_definitions(-DRAD_VITA_GXM_USER_MB=${SRR2_VITA_GXM_USER_MB})
 	# Extended memory mode: raises the user memory budget of the app from 256 MB
 	# to 368 MB
 	set(VITA_MKSFOEX_FLAGS "${VITA_MKSFOEX_FLAGS} -d ATTRIBUTE2=12")
