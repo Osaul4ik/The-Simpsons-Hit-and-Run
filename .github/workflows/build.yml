@@ -67,10 +67,10 @@ jobs:
           printf '%s\n' "$ART_DEPLOY_KEY" > ~/.ssh/art_key
           chmod 600 ~/.ssh/art_key
           ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
-          GIT_SSH_COMMAND="ssh -i ~/.ssh/art_key -o IdentitiesOnly=yes" \\
+          GIT_SSH_COMMAND="ssh -i ~/.ssh/art_key -o IdentitiesOnly=yes" \
             git clone --depth 1 git@github.com:Osaul4ik/simpsons_art.git /tmp/assets
           rm -f ~/.ssh/art_key
-          if [ -d /tmp/assets/art ]; then cp -r /tmp/assets/art art; \\
+          if [ -d /tmp/assets/art ]; then cp -r /tmp/assets/art art; \
           else mkdir art && cp -r /tmp/assets/. art/ && rm -rf art/.git; fi
           test -d art/frontend/scrooby
 
