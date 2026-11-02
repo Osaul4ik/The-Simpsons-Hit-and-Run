@@ -34,6 +34,20 @@
 
 #include <mission/gameplaymanager.h>
 
+// Load-complete callbacks run on the main thread and can be heavy (character/vehicle setup,
+// zone activation). Log the slow ones together with the file that triggered them.
+#if defined(RAD_VITA) && defined(RAD_LOG)
+#define LM_CALLBACK_LOG 1
+#endif
+static inline void LogSlowCallback( const char* what, const char* filename, unsigned startMs )
+{
+    unsigned ms = radTimeGetMilliseconds() - startMs;
+    if( ms >= 30 )
+    {
+        rReleasePrintf( "[stall] %s callback for %s took %u ms\n", what, filename, ms );
+    }
+}
+
 //******************************************************************************
 //
 // Global Data, Local Data, Local Classes
@@ -309,7 +323,13 @@ void LoadingManager::OnLoadFileComplete( void* pUserData )
 
     if(request.pCallback)
     {
+#ifdef LM_CALLBACK_LOG
+        const unsigned cbStart = radTimeGetMilliseconds();
+#endif
         request.pCallback->OnProcessRequestsComplete(request.pUserData);
+#ifdef LM_CALLBACK_LOG
+        LogSlowCallback( "load-complete", request.filename, cbStart );
+#endif
     }
 
     request.pFileHandler->Release();
@@ -638,11 +658,15 @@ void LoadingManager::ProcessNextRequest()
                 mRequestHead = (mRequestHead + 1) % MAX_REQUESTS;
                 mLoading = false;
 
+#ifdef LM_CALLBACK_LOG
+                const unsigned cbStart = radTimeGetMilliseconds();
+#endif
                 request.pCallback->OnProcessRequestsComplete(request.pUserData);
+#ifdef LM_CALLBACK_LOG
+                LogSlowCallback( "queued", "(no file)", cbStart );
+#endif
                 ProcessNextRequest();
             }
         }
     }
 }
-
-

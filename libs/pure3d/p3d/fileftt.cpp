@@ -89,6 +89,14 @@ void tFileFTT::SetYieldTime(unsigned ms)
 }
 
 //--------------------------------------------------------------------------
+void tFileFTT::YieldIfDue(void)
+{
+#ifdef RAD_VITA
+    YieldIfSliceExpired();
+#endif
+}
+
+//--------------------------------------------------------------------------
 void tFileFTT::SetLoadingMode(bool loading)
 {
 #ifdef RAD_VITA

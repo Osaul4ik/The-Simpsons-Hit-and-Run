@@ -448,6 +448,17 @@ void Game::Terminate()
 // Returns:     None.
 //
 //==============================================================================
+// Frame hitch logging (Vita release log only): splits a long frame into its main parts.
+#if defined(RAD_VITA) && defined(RAD_LOG)
+#define GAME_HITCH_LOG 1
+#ifndef GAME_HITCH_THRESHOLD_US
+#define GAME_HITCH_THRESHOLD_US 100000
+#endif
+#define HITCH_MARK(i) hitchMark[i] = radTimeGetMicroseconds64()
+#else
+#define HITCH_MARK(i)
+#endif
+
 const unsigned PROFILE_CHANNEL_ALL = 0;
 const unsigned PROFILE_CHANNEL_AI = 1;
 const unsigned PROFILE_CHANNEL_RENDER = 2;
@@ -495,6 +506,12 @@ void Game::Run()
 
         BEGIN_PROFILE( "GameLoop" )
 
+#ifdef GAME_HITCH_LOG
+        radTime64 hitchMark[6] = { 0, 0, 0, 0, 0, 0 };
+        const int hitchContext = mpGameFlow ? (int)mpGameFlow->GetCurrentContext() : -1;
+#endif
+        HITCH_MARK(0);
+
         unsigned newTime =  radTimeGetMilliseconds();
         unsigned elapsed = newTime - time;
         time = newTime;
@@ -541,12 +558,14 @@ void Game::Run()
             DEMOPROFILE( g_DemoProfiler.Start(PROFILE_CHANNEL_AI); )
             mpTimerList->Service(); //nv
             mpGameFlow->OnTimerDone(elapsed, NULL);
+            HITCH_MARK(1);
             DEMOPROFILE( g_DemoProfiler.Stop(PROFILE_CHANNEL_AI); )
 
             if( !mExitNow )
             {
                 DEMOPROFILE( g_DemoProfiler.Start(PROFILE_CHANNEL_RENDER); )
                 mpRenderFlow->OnTimerDone(elapsed, NULL);
+                HITCH_MARK(2);
                 DEMOPROFILE( g_DemoProfiler.Stop(PROFILE_CHANNEL_RENDER); )
             }
         }
@@ -580,6 +599,7 @@ void Game::Run()
         // Service the sound renderer.
         //
         SoundManager::GetInstance()->Update();
+        HITCH_MARK(3);
 
         if ( mpPlatform->PausedForErrors() )
         {
@@ -599,6 +619,20 @@ void Game::Run()
         DEMOPROFILE( g_DemoProfiler.Stop(PROFILE_CHANNEL_LOAD); )
 
         ++mFrameCount;
+
+#ifdef GAME_HITCH_LOG
+        HITCH_MARK(4);
+        if( hitchMark[4] - hitchMark[0] >= GAME_HITCH_THRESHOLD_US )
+        {
+            // marks that were skipped (paused, exit) stay 0 and are reported as 0 ms
+            rReleasePrintf( "[hitch] frame %u: %u ms (context %d): flow %u, render %u, services+sound %u, loader slice %u ms\n",
+                            (unsigned)mFrameCount, (unsigned)( ( hitchMark[4] - hitchMark[0] ) / 1000 ), hitchContext,
+                            hitchMark[1] ? (unsigned)( ( hitchMark[1] - hitchMark[0] ) / 1000 ) : 0,
+                            ( hitchMark[2] && hitchMark[1] ) ? (unsigned)( ( hitchMark[2] - hitchMark[1] ) / 1000 ) : 0,
+                            hitchMark[3] ? (unsigned)( ( hitchMark[3] - ( hitchMark[2] ? hitchMark[2] : hitchMark[0] ) ) / 1000 ) : 0,
+                            hitchMark[3] ? (unsigned)( ( hitchMark[4] - hitchMark[3] ) / 1000 ) : 0 );
+        }
+#endif
 
         DEMOPROFILE( g_DemoProfiler.Stop(PROFILE_CHANNEL_ALL); )
 

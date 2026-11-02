@@ -35,6 +35,20 @@
 #define strcmpi strcasecmp
 #endif
 
+// Stall logging (Vita release log only): finds chunk handlers that run for a long time without
+// handing control back to the main thread. Time the loader spends parked inside SwitchTask()
+// is subtracted, so the number is pure work done in the loader thread.
+#if defined(RAD_VITA) && defined(RAD_LOG) && !defined(P3D_TRACK_LOAD_STATS)
+#define P3D_STALL_LOG 1
+#include <psp2/kernel/threadmgr.h>
+#include <radtime.hpp>
+#ifndef P3D_STALL_LOG_THRESHOLD_US
+#define P3D_STALL_LOG_THRESHOLD_US 20000
+#endif
+static SceUID sStallLoaderTid = 0;       // thread that runs the chunk handlers
+static radTime64 sStallYieldedUs = 0;    // time that thread has spent parked in SwitchTask()
+#endif
+
 #ifdef RAD_GAMECUBE
 #include <ctype.h>
 int strcmpi(const char *a, const char *b)
@@ -189,11 +203,27 @@ tLoadStatus  tP3DFileHandler::Load(tFile* file, tEntityStore* store)
 #endif
         chunkFile->BeginChunk();
 
+#ifdef P3D_STALL_LOG
+        sStallLoaderTid = sceKernelGetThreadId();
+        const radTime64 stallStart = radTimeGetMicroseconds64();
+        const radTime64 stallYield0 = sStallYieldedUs;
+#endif
         tChunkHandler* h = static_cast<tChunkHandler*>(radLoad->GetDataLoader(chunkFile->GetCurrentID()));
         if (h != NULL)
         {
             tLoadStatus status = h->Load(chunkFile, store);
             if(fileStatus == LOAD_ERROR) fileStatus = status;
+#ifdef P3D_STALL_LOG
+            const radTime64 stallWall = radTimeGetMicroseconds64() - stallStart;
+            const radTime64 stallYielded = sStallYieldedUs - stallYield0;
+            const radTime64 stallWork = stallWall > stallYielded ? stallWall - stallYielded : 0;
+            if( stallWork >= P3D_STALL_LOG_THRESHOLD_US )
+            {
+                rReleasePrintf( "[stall] chunk 0x%x (%s) in %s: %u ms of work, %u ms yielded\n",
+                                chunkFile->GetCurrentID(), tChunkHandler::ChunkTypeName( chunkFile->GetCurrentID() ),
+                                file->GetFilename(), (unsigned)( stallWork / 1000 ), (unsigned)( stallYielded / 1000 ) );
+            }
+#endif
         }
         else
         {
@@ -213,6 +243,10 @@ tLoadStatus  tP3DFileHandler::Load(tFile* file, tEntityStore* store)
 #endif
         chunkFile->EndChunk();
         P3DASSERT(chunkFile->GetCurrentID() == Pure3D::DATA_FILE);
+#ifdef RAD_VITA
+        // Chunk boundary: the safest place to give the main thread its frame back.
+        tFileFTT::YieldIfDue();
+#endif
     }
     chunkFile->Release();
 
@@ -555,6 +589,16 @@ void tLoadManager::SwitchTask(void)
         GetMemoryStats(&freememoryend, &allocationsend);
         mTaskedOutMemoryDelta += (freememoryend - freememorystart);
         mTaskedOutAllocationsDelta += (allocationsend - allocationsstart);
+    }
+#elif defined(P3D_STALL_LOG)
+    // Called from the loader thread this is a yield: the time until it returns is time the
+    // main thread ran, not work done by the chunk handler.
+    const bool fromLoader = ( sceKernelGetThreadId() == sStallLoaderTid );
+    const radTime64 t0 = fromLoader ? radTimeGetMicroseconds64() : 0;
+    radLoad->Service();
+    if( fromLoader )
+    {
+        sStallYieldedUs += radTimeGetMicroseconds64() - t0;
     }
 #else
     radLoad->Service();

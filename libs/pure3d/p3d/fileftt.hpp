@@ -42,6 +42,12 @@ public:
     // frame rate.
     static void SetLoadingMode(bool loading);
 
+    // Vita only (no-op elsewhere). Called by the loader thread between top-level chunks:
+    // hands control back to the main thread if the loader's slice has expired. Chunk handlers
+    // only yielded while reading data, so a chunk that is mostly processing (texture and
+    // vertex buffer creation, spatial trees) used to keep the main thread waiting.
+    static void YieldIfDue(void);
+
 protected:
 
     IRadFile*    m_pIRadFile;
