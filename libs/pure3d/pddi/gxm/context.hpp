@@ -172,6 +172,13 @@ protected:
     class gxmPrimBuffer* AcquirePrimBuffer(pddiPrimType type, unsigned vertexType, int nVertex);
     void RecyclePrimBuffer(pddiPrimBuffer* buffer);
     void DrainPrimPool();
+
+    // Reserve per-draw default uniform buffers. If a ring buffer is exhausted mid-scene
+    // (SCE_GXM_ERROR_RESERVE_FAILED) flush the scene, wait for the GPU and retry once
+    // instead of silently dropping the draw.
+    void MidSceneFlushAndWait();
+    bool ReserveVertexUniforms();
+    bool ReserveFragmentUniforms();
 };
 
 class gxmPrimBufferStream;

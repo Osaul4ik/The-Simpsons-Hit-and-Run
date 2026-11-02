@@ -24,6 +24,23 @@
 // Enable the following define to create a Razor capture file.
 //#define ENABLE_RAZOR_GPU_CAPTURE
 
+// GXM ring buffer sizes. The defaults (VDM 128 KB, vertex 2 MB, fragment 512 KB) are sized for
+// small scenes; this game issues thousands of draws per frame, each reserving a default
+// uniform buffer from the vertex ring, and exhausting it fails the draw with
+// SCE_GXM_ERROR_RESERVE_FAILED (0x805B0006). The memory comes from radMemorySpace_User.
+#ifndef RAD_VITA_GXM_VDM_RING_KB
+#define RAD_VITA_GXM_VDM_RING_KB 512
+#endif
+#ifndef RAD_VITA_GXM_VERTEX_RING_KB
+#define RAD_VITA_GXM_VERTEX_RING_KB 4096
+#endif
+#ifndef RAD_VITA_GXM_FRAGMENT_RING_KB
+#define RAD_VITA_GXM_FRAGMENT_RING_KB 1024
+#endif
+#define GXM_VDM_RING_SIZE      (RAD_VITA_GXM_VDM_RING_KB * 1024)
+#define GXM_VERTEX_RING_SIZE   (RAD_VITA_GXM_VERTEX_RING_KB * 1024)
+#define GXM_FRAGMENT_RING_SIZE (RAD_VITA_GXM_FRAGMENT_RING_KB * 1024)
+
 // Helper macro to align a value
 #define ALIGN(x, a)					(((x) + ((a) - 1)) & ~((a) - 1))
 
@@ -122,9 +139,9 @@ gxmDisplay::~gxmDisplay()
     /* release and free the device context and rendering context */
     sceGxmDestroyContext(gxm);
     gxmDevice::fragmentUsseFree(fragmentUsseRingBufferUid);
-    radMemorySpaceFree(radMemorySpace_User, radMemoryGetCurrentAllocator(), fragmentRingBuffer);
-    radMemorySpaceFree(radMemorySpace_User, radMemoryGetCurrentAllocator(), vertexRingBuffer);
-    radMemorySpaceFree(radMemorySpace_User, radMemoryGetCurrentAllocator(), vdmRingBuffer);
+    radMemorySpaceFreeAligned(radMemorySpace_User, radMemoryGetCurrentAllocator(), fragmentRingBuffer);
+    radMemorySpaceFreeAligned(radMemorySpace_User, radMemoryGetCurrentAllocator(), vertexRingBuffer);
+    radMemorySpaceFreeAligned(radMemorySpace_User, radMemoryGetCurrentAllocator(), vdmRingBuffer);
     for(uint32_t i = 0; i < GetNumColourBuffer(); ++i)
         radMemorySpaceFreeAligned(radMemorySpace_Cdram, radMemoryGetCurrentAllocator(), displayBufferData[i]);
     radMemorySpaceFreeAligned(radMemorySpace_Cdram, radMemoryGetCurrentAllocator(), depthBufferData);
@@ -248,22 +265,25 @@ bool gxmDisplay::InitDisplay(const pddiDisplayInit* init)
     IRadMemoryHeap* cdramHeap = (IRadMemoryHeap*)radMemorySpaceGetAllocator(radMemorySpace_Cdram, radMemoryGetCurrentAllocator());
     CHK_GXM(sceGxmMapMemory(cdramHeap->GetStartOfMemory(), cdramHeap->GetSize(), SCE_GXM_MEMORY_ATTRIB_RW));
 
-    // allocate ring buffer memory using default sizes
+    // allocate ring buffer memory (4 KB aligned, as GXM requires)
     radMemorySetAllocationName("displayBufferData");
-    vdmRingBuffer = radMemorySpaceAlloc(
+    vdmRingBuffer = radMemorySpaceAllocAligned(
         radMemorySpace_User,
         radMemoryGetCurrentAllocator(),
-        SCE_GXM_DEFAULT_VDM_RING_BUFFER_SIZE);
+        GXM_VDM_RING_SIZE,
+        4096);
     radMemorySetAllocationName("vertexRingBuffer");
-    vertexRingBuffer = radMemorySpaceAlloc(
+    vertexRingBuffer = radMemorySpaceAllocAligned(
         radMemorySpace_User,
         radMemoryGetCurrentAllocator(),
-        SCE_GXM_DEFAULT_VERTEX_RING_BUFFER_SIZE);
+        GXM_VERTEX_RING_SIZE,
+        4096);
     radMemorySetAllocationName("fragmentRingBuffer");
-    fragmentRingBuffer = radMemorySpaceAlloc(
+    fragmentRingBuffer = radMemorySpaceAllocAligned(
         radMemorySpace_User,
         radMemoryGetCurrentAllocator(),
-        SCE_GXM_DEFAULT_FRAGMENT_RING_BUFFER_SIZE);
+        GXM_FRAGMENT_RING_SIZE,
+        4096);
     uint32_t fragmentUsseRingBufferOffset;
     void* fragmentUsseRingBuffer = gxmDevice::fragmentUsseAlloc(
         SCE_GXM_DEFAULT_FRAGMENT_USSE_RING_BUFFER_SIZE,
@@ -275,11 +295,11 @@ bool gxmDisplay::InitDisplay(const pddiDisplayInit* init)
     contextParams.hostMem = malloc(SCE_GXM_MINIMUM_CONTEXT_HOST_MEM_SIZE);
     contextParams.hostMemSize = SCE_GXM_MINIMUM_CONTEXT_HOST_MEM_SIZE;
     contextParams.vdmRingBufferMem = vdmRingBuffer;
-    contextParams.vdmRingBufferMemSize = SCE_GXM_DEFAULT_VDM_RING_BUFFER_SIZE;
+    contextParams.vdmRingBufferMemSize = GXM_VDM_RING_SIZE;
     contextParams.vertexRingBufferMem = vertexRingBuffer;
-    contextParams.vertexRingBufferMemSize = SCE_GXM_DEFAULT_VERTEX_RING_BUFFER_SIZE;
+    contextParams.vertexRingBufferMemSize = GXM_VERTEX_RING_SIZE;
     contextParams.fragmentRingBufferMem = fragmentRingBuffer;
-    contextParams.fragmentRingBufferMemSize = SCE_GXM_DEFAULT_FRAGMENT_RING_BUFFER_SIZE;
+    contextParams.fragmentRingBufferMemSize = GXM_FRAGMENT_RING_SIZE;
     contextParams.fragmentUsseRingBufferMem = fragmentUsseRingBuffer;
     contextParams.fragmentUsseRingBufferMemSize = SCE_GXM_DEFAULT_FRAGMENT_USSE_RING_BUFFER_SIZE;
     contextParams.fragmentUsseRingBufferOffset = fragmentUsseRingBufferOffset;

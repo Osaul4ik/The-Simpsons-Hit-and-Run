@@ -394,10 +394,7 @@ pddiPrimStream* gxmContext::BeginPrims(pddiShader* mat, pddiPrimType primType, u
     if((streamsHead.value + 1) % BUFFERED_VERTS == streamsTail)
     {
         rDebugString("Vertex stream ring-buffer is full! Waiting for mid-scene flush, consider increasing BUFFERED_VERTS.");
-        ++midSceneFlushes;
-        CHK_GXM(sceGxmMidSceneFlush(context, 0, NULL, &streamsHead));
-        CHK_GXM(sceGxmNotificationWait(&streamsHead));
-        FlushVertexStreams();
+        MidSceneFlushAndWait();
     }
     streamsHead.value = (streamsHead.value + 1) % BUFFERED_VERTS;
     streams[streamsHead.value] = thePrimStream.buffer;
@@ -1064,9 +1061,40 @@ gxmProgram* gxmContext::GetFragmentProgram(const gxmTextureEnv* texEnv)
         return colorProgram;
 }
 
+void gxmContext::MidSceneFlushAndWait()
+{
+    ++midSceneFlushes;
+    CHK_GXM(sceGxmMidSceneFlush(context, 0, NULL, &streamsHead));
+    CHK_GXM(sceGxmNotificationWait(&streamsHead));
+    FlushVertexStreams();
+}
+
+bool gxmContext::ReserveVertexUniforms()
+{
+    int err = sceGxmReserveVertexDefaultUniformBuffer(context, &vertexUniformBuffer);
+    if(err == (int)SCE_GXM_ERROR_RESERVE_FAILED)
+    {
+        MidSceneFlushAndWait();
+        err = sceGxmReserveVertexDefaultUniformBuffer(context, &vertexUniformBuffer);
+    }
+    return CHK_GXM(err);
+}
+
+bool gxmContext::ReserveFragmentUniforms()
+{
+    int err = sceGxmReserveFragmentDefaultUniformBuffer(context, &fragmentUniformBuffer);
+    if(err == (int)SCE_GXM_ERROR_RESERVE_FAILED)
+    {
+        MidSceneFlushAndWait();
+        err = sceGxmReserveFragmentDefaultUniformBuffer(context, &fragmentUniformBuffer);
+    }
+    return CHK_GXM(err);
+}
+
 void gxmContext::SetTextureEnvironment(const gxmTextureEnv* texEnv, gxmProgram* fragProgram)
 {
-    CHK_GXM(sceGxmReserveVertexDefaultUniformBuffer(context, &vertexUniformBuffer));
+    if(!ReserveVertexUniforms())
+        return; // ring still exhausted: skip the uniform upload instead of writing through NULL
     for(int i = 0; i < PDDI_MAX_LIGHTS; i++)
         vertexProgram->SetLightState(vertexUniformBuffer, i, &state.lightingState->light[i], texEnv->lit, texEnv->shininess);
     vertexProgram->SetAmbientLight(vertexUniformBuffer, state.lightingState->ambient);
@@ -1075,7 +1103,7 @@ void gxmContext::SetTextureEnvironment(const gxmTextureEnv* texEnv, gxmProgram* 
     vertexProgram->SetTextureEnvironment(vertexUniformBuffer, texEnv);
     if (texEnv->alphaTest)
     {
-        CHK_GXM(sceGxmReserveFragmentDefaultUniformBuffer(context, &fragmentUniformBuffer));
-        fragProgram->SetAlphaTest(fragmentUniformBuffer, texEnv);
+        if(ReserveFragmentUniforms())
+            fragProgram->SetAlphaTest(fragmentUniformBuffer, texEnv);
     }
 }
