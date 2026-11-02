@@ -488,6 +488,10 @@ void RenderManager::ZoneCacheEvictOldest()
     n.SetText( mZoneCache[0] );
     HeapMgr()->PopHeap( GMA_TEMP );
 
+    // The previous frame may still be queued on the GPU and read this zone's textures/vertex
+    // buffers. Wait for the GPU to go idle before the dump frees them.
+    p3d::pddi->DrawSync();
+
 ZSTALL_BEGIN( evictT0 );
     mpRenderLayers[RenderEnums::LevelSlot]->DumpDynaLoad( n, mEntityDeletionList );
 ZSTALL_END( evictT0, "zone cache: evict (dump)", 5 );
@@ -1755,6 +1759,13 @@ BEGIN_PROFILE( "Zone/Int Dump" );
 #endif
 
 BEGIN_PROFILE( "Dump Zones" );
+#ifdef RAD_VITA
+            // Same as in ZoneCacheEvictOldest(): the GPU must be idle before zone memory is freed.
+            if( mpZEL->GetNumDumpZones() > 0 )
+            {
+                p3d::pddi->DrawSync();
+            }
+#endif
             for(i=0; i<mpZEL->GetNumDumpZones(); i++)
             {
 #ifdef RAD_VITA
