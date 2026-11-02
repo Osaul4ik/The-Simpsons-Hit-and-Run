@@ -23,6 +23,7 @@
 // System Includes
 //========================================
 #include <constants/chunkids.hpp>
+#include <string.h>
 #include <raddebug.hpp>
 #include <radtime.hpp>
 #include <raddebugwatch.hpp>
@@ -94,6 +95,24 @@
 void LogProgress( const char* stage );
 #else
 #define LogProgress( stage ) ((void)0)
+#endif
+
+// Defined in main/win32main.cpp: true while there is memory to keep one more far zone resident.
+bool ZoneCacheHasHeadroom();
+
+#ifndef RAD_VITA_ZONE_CACHE_MAX_ZONES
+#define RAD_VITA_ZONE_CACHE_MAX_ZONES 16   // max deferred (resident, not in use) zones; 0 disables the cache
+#endif
+
+// Stall timers (Vita + RAD_LOG): log a step of zone dump/load completion that takes too long on the main thread.
+#if defined( RAD_VITA ) && defined( RAD_LOG )
+#define ZSTALL_BEGIN( t )          radTime64 t = radTimeGetMicroseconds64()
+#define ZSTALL_END( t, label, ms ) { radTime64 zd_ = radTimeGetMicroseconds64() - t; \
+                                     if( zd_ >= (radTime64)(ms) * 1000 ) \
+                                         rReleasePrintf( "[stall] %s took %d ms\n", label, (int)( zd_ / 1000 ) ); }
+#else
+#define ZSTALL_BEGIN( t )
+#define ZSTALL_END( t, label, ms )
 #endif
 //******************************************************************************
 //
@@ -386,6 +405,137 @@ void RenderManager::MunchDelList(unsigned us)
         }
     }
 }
+
+//========================================================================
+// Zone cache (Vita)
+//========================================================================
+//
+// A ZEL's Dump list is normally executed on the spot, on the main thread
+// (~30 ms per zone: spatial-tree removal, inventory section delete). Here the
+// dump is deferred instead: the zone stays loaded and is remembered in a FIFO.
+//   - re-entering the zone: it is "already loaded", nothing streams, and the
+//     load-complete callback (70-140 ms) does not run either;
+//   - FIFO over RAD_VITA_ZONE_CACHE_MAX_ZONES, or no memory headroom
+//     (ZoneCacheHasHeadroom): the oldest zone is really dumped.
+// Interior ZELs flush the cache first, so interiors are unchanged.
+// Build with -DRAD_VITA_ZONE_CACHE_MAX_ZONES=0 to switch it off.
+//
+//========================================================================
+
+// Drop entries whose zone is no longer loaded (level reset, DumpAllDynaLoads, ...).
+void RenderManager::ZoneCachePurgeStale()
+{
+    int w = 0;
+    for( int r = 0; r < mNumZoneCache; r++ )
+    {
+        tName n;
+        HeapMgr()->PushHeap( GMA_TEMP );
+        n.SetText( mZoneCache[r] );
+        HeapMgr()->PopHeap( GMA_TEMP );
+        if( mpRenderLayers[RenderEnums::LevelSlot]->IsDynaLoaded( n ) )
+        {
+            if( w != r )
+            {
+                strcpy( mZoneCache[w], mZoneCache[r] );
+            }
+            w++;
+        }
+    }
+    mNumZoneCache = w;
+}
+
+void RenderManager::ZoneCacheRemove( const char* name )
+{
+    for( int r = 0; r < mNumZoneCache; r++ )
+    {
+        if( strcmp( mZoneCache[r], name ) == 0 )
+        {
+            for( int k = r; k < mNumZoneCache - 1; k++ )
+            {
+                strcpy( mZoneCache[k], mZoneCache[k + 1] );
+            }
+            mNumZoneCache--;
+            return;
+        }
+    }
+}
+
+// Really dump the oldest cached zone.
+void RenderManager::ZoneCacheEvictOldest()
+{
+    if( mNumZoneCache <= 0 )
+    {
+        return;
+    }
+    tName n;
+    HeapMgr()->PushHeap( GMA_TEMP );
+    n.SetText( mZoneCache[0] );
+    HeapMgr()->PopHeap( GMA_TEMP );
+
+ZSTALL_BEGIN( evictT0 );
+    mpRenderLayers[RenderEnums::LevelSlot]->DumpDynaLoad( n, mEntityDeletionList );
+ZSTALL_END( evictT0, "zone cache: evict (dump)", 5 );
+    rReleasePrintf( "[zonecache] evicted %s, cached=%d\n", mZoneCache[0], mNumZoneCache - 1 );
+
+    for( int k = 0; k < mNumZoneCache - 1; k++ )
+    {
+        strcpy( mZoneCache[k], mZoneCache[k + 1] );
+    }
+    mNumZoneCache--;
+}
+
+void RenderManager::ZoneCacheFlush()
+{
+    while( mNumZoneCache > 0 )
+    {
+        ZoneCacheEvictOldest();
+    }
+}
+
+// Returns true if the dump of this zone was deferred (zone kept resident),
+// false if the caller must dump it now.
+bool RenderManager::ZoneCacheDefer( const char* name )
+{
+    if( strlen( name ) >= ZONE_CACHE_NAME_LEN )
+    {
+        return false;
+    }
+
+    tName n;
+    HeapMgr()->PushHeap( GMA_TEMP );
+    n.SetText( name );
+    HeapMgr()->PopHeap( GMA_TEMP );
+
+    // Not loaded: nothing to defer. The normal dump finds nothing and returns.
+    if( !mpRenderLayers[RenderEnums::LevelSlot]->IsDynaLoaded( n ) )
+    {
+        ZoneCacheRemove( name );
+        return false;
+    }
+
+    ZoneCachePurgeStale();
+    ZoneCacheRemove( name );   // already cached: re-add as the newest
+
+    // Make room: over the cap, or low on memory.
+    while( mNumZoneCache > 0 &&
+           ( mNumZoneCache >= RAD_VITA_ZONE_CACHE_MAX_ZONES ||
+             mNumZoneCache >= ZONE_CACHE_SLOTS ||
+             !ZoneCacheHasHeadroom() ) )
+    {
+        ZoneCacheEvictOldest();
+    }
+
+    if( RAD_VITA_ZONE_CACHE_MAX_ZONES <= 0 || !ZoneCacheHasHeadroom() )
+    {
+        return false;   // no room even for one: dump right away like before
+    }
+
+    strcpy( mZoneCache[mNumZoneCache], name );
+    mNumZoneCache++;
+    rReleasePrintf( "[zonecache] deferred dump of %s, cached=%d\n", name, mNumZoneCache );
+    return true;
+}
+
 
 //========================================================================
 // RenderManager::
@@ -1032,7 +1182,9 @@ void RenderManager::OnProcessRequestsComplete( void* pUserData )
     // LoaderWrappers
     //
     //AllWrappers::GetInstance()->mLoader( AllWrappers::msGeometry ).ModRegdListener( this, RenderEnums::LevelSlot | RenderEnums::IgnoreGuts );
+ZSTALL_BEGIN( evT0 );
     GetEventManager()->TriggerEvent( EVENT_DYNAMIC_ZONE_LOAD_ENDED );
+ZSTALL_END( evT0, "zone-complete: EVENT_DYNAMIC_ZONE_LOAD_ENDED", 10 );
 #ifndef RAD_RELEASE
     FinishedZone();
 #endif
@@ -1047,7 +1199,9 @@ void RenderManager::OnProcessRequestsComplete( void* pUserData )
         static char spSomeDamnFile[128];
         int i = ((*(int*)pUserData) & RenderEnums::ZoneMask) >> RenderEnums::ZoneShift;
 
+ZSTALL_BEGIN( postT0 );
         mpRenderLayers[(*(int*)pUserData) & RenderEnums::LayerOnlyMask]->DoPostDynaLoad();
+ZSTALL_END( postT0, "zone-complete: DoPostDynaLoad", 10 );
 
         bool alreadyLoaded=true;
 
@@ -1057,7 +1211,9 @@ void RenderManager::OnProcessRequestsComplete( void* pUserData )
             LogProgress( "zone loaded" );
             //HeapMgr()->DumpHeapStats(true);
             tUID tempUID = tName::MakeUID(mpZEL->GetLoadZone(i));
+ZSTALL_BEGIN( namedT0 );
             GetEventManager()->TriggerEvent( EVENT_NAMED_DYNAMIC_ZONE_LOAD_ENDED, &tempUID );
+ZSTALL_END( namedT0, "zone-complete: EVENT_NAMED_DYNAMIC_ZONE_LOAD_ENDED", 10 );
             
             if( mbLoadZonesDumped )
             {
@@ -1216,7 +1372,9 @@ END_PROFILE( "Add Requests Int" );
                 }
                 else
                 {
+ZSTALL_BEGIN( endT0 );
                     GetEventManager()->TriggerEvent( EVENT_ALL_DYNAMIC_ZONE_END );
+ZSTALL_END( endT0, "zone-complete: EVENT_ALL_DYNAMIC_ZONE_END", 10 );
                     rReleasePrintf("ZoneLoadingEnded Verified\n");
                     LogProgress( "all zones loaded" );
                     mbDynaLoading = false;
@@ -1543,15 +1701,45 @@ END_PROFILE( "RenderManager HandleEvent" );
             //////////////////////////////////////////////////////////////////////////
 BEGIN_PROFILE( "Zone/Int Dump" );
 
+            //
+            // Zone cache. Zones this ZEL wants loaded are taken out of the cache
+            // (they are in use again, and DoPreDynaLoad will see them as already
+            // loaded). For interior transitions the whole cache is dumped first,
+            // so interiors behave exactly as before.
+            //
+            bool zoneCacheOn = false;
+#ifdef RAD_VITA
+            if( RAD_VITA_ZONE_CACHE_MAX_ZONES > 0 )
+            {
+                for(i=0; i<mpZEL->GetNumLoadZones(); i++)
+                {
+                    ZoneCacheRemove( mpZEL->GetLoadZone(i) );
+                }
+                zoneCacheOn = !mpZEL->IsInteriorDump() && !mpZEL->IsInteriorLoad();
+                if( !zoneCacheOn )
+                {
+                    ZoneCacheFlush();
+                }
+            }
+#endif
+
 BEGIN_PROFILE( "Dump Zones" );
             for(i=0; i<mpZEL->GetNumDumpZones(); i++)
             {
+#ifdef RAD_VITA
+               if( zoneCacheOn && ZoneCacheDefer( mpZEL->GetDumpZone(i) ) )
+               {
+                  continue;
+               }
+#endif
                HeapMgr()->PushHeap (GMA_TEMP);
                GiveItAFuckinName.SetText(mpZEL->GetDumpZone(i));
                HeapMgr()->PopHeap ( GMA_TEMP);
 
+ZSTALL_BEGIN( dumpT0 );
                //mpRenderLayers[msLayer & RenderEnums::LayerOnlyMask]->DumpDynaLoad(GiveItAFuckinName);
                mpRenderLayers[RenderEnums::LevelSlot]->DumpDynaLoad(GiveItAFuckinName, mEntityDeletionList);
+ZSTALL_END( dumpT0, mpZEL->GetDumpZone(i), 5 );
             }
 
 BEGIN_PROFILE( "Trigger IntDump Event" );
@@ -1645,7 +1833,9 @@ END_PROFILE( "Add Requests Int" );
                 }
                 else
                 {
+ZSTALL_BEGIN( endT0 );
                     GetEventManager()->TriggerEvent( EVENT_ALL_DYNAMIC_ZONE_END );
+ZSTALL_END( endT0, "zone-complete: EVENT_ALL_DYNAMIC_ZONE_END", 10 );
                     rReleasePrintf("ZoneLoadingEnded Verified\n");
                     LogProgress( "all zones loaded" );
                     mbDynaLoading = false;
@@ -1832,6 +2022,7 @@ RenderManager::RenderManager() :
    InitLayers();
    mDoneInitialLoad = false;
    mbLoadZonesDumped = false;
+   mNumZoneCache = 0;
    mbIgnoreVisibilityClear = false;
    mbInVsibilityVolume = false;
 

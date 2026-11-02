@@ -72,6 +72,7 @@ public:
    virtual void   DumpAllDynaLoads(  unsigned int start, SwapArray<tRefCounted*>& irEntityDeletionList);
    virtual void   DumpDynaLoad(tName& irGiveItAFuckinName, SwapArray<tRefCounted*>& irEntityDeletionList);
    virtual bool   DoPreDynaLoad(tName& irGiveItAFuckinName);
+   virtual bool   IsDynaLoaded(tName& irGiveItAFuckinName);
    virtual void   DoPostDynaLoad();
 
    WorldScene* pWorldScene();

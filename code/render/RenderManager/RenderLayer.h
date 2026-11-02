@@ -124,6 +124,8 @@ public:
    virtual void   DumpAllDynaLoads(unsigned int start, SwapArray<tRefCounted*>& irEntityDeletionList);   
    virtual void   DumpDynaLoad(tName& irGiveItAFuckinName, SwapArray<tRefCounted*>& irEntityDeletionList);
    virtual bool   DoPreDynaLoad(tName& irGiveItAFuckinName);
+   // True if the named dynamic zone is currently in the load lists (used by the zone cache)
+   virtual bool   IsDynaLoaded(tName& irGiveItAFuckinName) { return false; }
    virtual void   DoPostDynaLoad();
 
    ///////////////////////////////////////////////////////////////////////
@@ -180,4 +182,3 @@ protected:
 };
 
 #endif
-

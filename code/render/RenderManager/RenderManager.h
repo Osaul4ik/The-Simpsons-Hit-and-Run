@@ -153,6 +153,20 @@ private:
    bool mbFirstDynamicZone;
    bool mbDrivingTooFastLoad;
    bool mbLoadZonesDumped;
+
+   // Zone cache (Vita): far-away zones listed in a ZEL's Dump list are not
+   // dumped right away (that costs ~30 ms per zone on the main thread). They
+   // stay resident in a FIFO, and are dumped (oldest first) only when the cap
+   // or the memory headroom is exhausted. A zone that is in the cache when a
+   // ZEL asks to load it is simply "already loaded", so no streaming happens.
+   enum { ZONE_CACHE_SLOTS = 32, ZONE_CACHE_NAME_LEN = 32 };
+   char mZoneCache[ZONE_CACHE_SLOTS][ZONE_CACHE_NAME_LEN];
+   int  mNumZoneCache;
+   void ZoneCachePurgeStale();
+   void ZoneCacheRemove( const char* name );
+   void ZoneCacheEvictOldest();
+   void ZoneCacheFlush();
+   bool ZoneCacheDefer( const char* name );
    bool mbIgnoreVisibilityClear;
    bool mbInVsibilityVolume;
    // Motion blur accessors / mutator functions

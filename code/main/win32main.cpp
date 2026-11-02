@@ -154,6 +154,60 @@ void LogProgress( const char* stage )
 #endif
 
 //=============================================================================
+// Function:    ZoneCacheHasHeadroom
+//=============================================================================
+//
+// Description: Used by RenderManager's zone cache (deferred zone Dump). On the
+//              Vita returns true while there is enough free memory to keep one
+//              more far-away zone resident: the newlib heap must stay under
+//              RAD_VITA_ZONE_CACHE_MAX_MALLOC_KB, and the user and cdram
+//              radMemorySpace heaps must keep a minimum free. On other
+//              platforms returns false, so the original behaviour (dump
+//              immediately) is unchanged.
+//
+//=============================================================================
+#ifdef RAD_VITA
+#ifndef RAD_VITA_ZONE_CACHE_MAX_MALLOC_KB
+#define RAD_VITA_ZONE_CACHE_MAX_MALLOC_KB ( 140 * 1024 )
+#endif
+#ifndef RAD_VITA_ZONE_CACHE_MIN_CDRAM_FREE_KB
+#define RAD_VITA_ZONE_CACHE_MIN_CDRAM_FREE_KB ( 24 * 1024 )
+#endif
+#ifndef RAD_VITA_ZONE_CACHE_MIN_USER_FREE_KB
+#define RAD_VITA_ZONE_CACHE_MIN_USER_FREE_KB ( 16 * 1024 )
+#endif
+extern IRadMemoryHeap* g_pIRadMemoryHeap_User;
+extern IRadMemoryHeap* g_pIRadMemoryHeap_Cdram;
+
+static bool HeapHasFreeKB( IRadMemoryHeap* heap, unsigned int minFreeKB )
+{
+    if( heap == NULL )
+    {
+        return true;
+    }
+    unsigned int totalFree = 0, largestBlock = 0, numObjects = 0, highWater = 0;
+    heap->GetStatus( &totalFree, &largestBlock, &numObjects, &highWater );
+    return ( totalFree / 1024 ) >= minFreeKB;
+}
+
+bool ZoneCacheHasHeadroom()
+{
+    struct mallinfo mi = mallinfo();
+    if( (unsigned int)mi.uordblks > (unsigned int)RAD_VITA_ZONE_CACHE_MAX_MALLOC_KB * 1024u )
+    {
+        return false;
+    }
+    return HeapHasFreeKB( g_pIRadMemoryHeap_Cdram, RAD_VITA_ZONE_CACHE_MIN_CDRAM_FREE_KB )
+        && HeapHasFreeKB( g_pIRadMemoryHeap_User, RAD_VITA_ZONE_CACHE_MIN_USER_FREE_KB );
+}
+#else
+bool ZoneCacheHasHeadroom()
+{
+    return false;
+}
+#endif
+
+//=============================================================================
 // Function:    WinMain
 //=============================================================================
 //

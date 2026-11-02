@@ -1509,6 +1509,16 @@ END_PROFILE( "Cleanup" );
 // Constraints: None.
 //
 //========================================================================
+bool WorldRenderLayer::IsDynaLoaded(tName& irGiveItAFuckinName)
+{
+   for(int i=0;i<mLoadLists.mUseSize;i++)
+   {
+      if(mLoadLists[i]->mGiveItAFuckinName.GetUID() == irGiveItAFuckinName.GetUID() )
+         return true;
+   }
+   return false;
+}
+
 bool WorldRenderLayer::DoPreDynaLoad(tName& irGiveItAFuckinName)//tUID iUID)
 {
    int i;
