@@ -43,6 +43,9 @@ public:
     // gxm specific stuff
     SceGxmTexture* GetGXMTexture(void) { return &texture; }
 
+    // Number of mip levels that currently hold valid data (1 = base level only).
+    int GetMipCount(void) const { return validMips; }
+
 protected:
     gxmContext* context;
     unsigned contextID;
@@ -57,11 +60,22 @@ protected:
 
     pddiLockInfo lock;
 
-    // Only the base level is stored on the GPU (the GXM backend never samples mip levels).
-    // Lock()/Unlock() of higher levels go through a temporary buffer that is discarded.
+    // Static, power-of-two, uncompressed textures (P8 / RGB565 / 32 bit) are stored swizzled
+    // with a full mip chain down to 8 pixels; everything else (DXT keeps its own swizzled
+    // base level, dynamic/NPOT/YUV stay linear) only stores the base level. Lock()/Unlock()
+    // of levels > 0 go through a temporary buffer that is discarded, since the mip chain is
+    // generated from level 0 when it is unlocked.
     uint8_t* bits;
-    int stride;         // bytes per row of the base level (from sceGxmTextureGetStride)
-    void* lockTemp;     // temporary buffer of the current Lock() (DXT and mip > 0), or NULL
+    int stride;         // bytes per row of the base level (linear textures)
+    void* lockTemp;     // temporary buffer of the current Lock() (DXT, swizzled, mip > 0), or NULL
+    bool swizzled;      // stored swizzled (uncompressed path)
+    int mipCount;       // levels allocated
+    int validMips;      // levels that hold valid data
+    void* pendingLinear;// P8 only: level 0 (tight, memory order) kept until the palette arrives
+    float statKB;       // what was added to the texture memory stat
+
+    void UploadChain(const uint8_t* level0, const uint32_t* palette, int firstLevel);
+    void BuildPaletteMips();
 
     // native 8-bit palettized storage (P8)
     uint32_t* paletteMem;   // 256 entries, GPU readable

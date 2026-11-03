@@ -13,6 +13,12 @@
 #include <microprofile.h>
 #include <SDL.h>
 
+// Blend between mip levels for every filter mode instead of only PDDI_FILTER_MIPMAP_TRILINEAR
+// (smoother transitions, costs a second texture fetch).
+#ifndef RAD_GXM_TRILINEAR_ALL
+#define RAD_GXM_TRILINEAR_ALL 0
+#endif
+
 pddiShadeColourTable gxmMat::colourTable[] = 
 {
     {PDDI_SP_AMBIENT  , SHADE_COLOUR(&gxmMat::SetAmbient)},
@@ -354,6 +360,19 @@ void gxmMat::SetDevPass(unsigned pass)
         CHK_GXM(sceGxmTextureSetMinFilter(texture, filterMinTable[texEnv[i].filterMode]));
         CHK_GXM(sceGxmTextureSetUAddrMode(texture, uvTable[texEnv[i].uvMode]));
         CHK_GXM(sceGxmTextureSetVAddrMode(texture, uvTable[texEnv[i].uvMode]));
+
+        // Textures with a mip chain: PDDI_FILTER_NONE (UI, splash, pixel exact drawing) always
+        // samples the base level. Everything else uses the chain, picking the nearest level
+        // (blending between levels only for the trilinear mode, or everywhere with
+        // -DRAD_GXM_TRILINEAR_ALL=1; costs a second texture fetch).
+        const int mips = texEnv[i].texture->GetMipCount();
+        if(mips > 1)
+        {
+            const pddiFilterMode fm = texEnv[i].filterMode;
+            const bool blendLevels = RAD_GXM_TRILINEAR_ALL || fm == PDDI_FILTER_MIPMAP_TRILINEAR;
+            CHK_GXM(sceGxmTextureSetMipmapCount(texture, fm == PDDI_FILTER_NONE ? 1 : mips));
+            CHK_GXM(sceGxmTextureSetMipFilter(texture, blendLevels ? SCE_GXM_TEXTURE_MIP_FILTER_ENABLED : SCE_GXM_TEXTURE_MIP_FILTER_DISABLED));
+        }
         CHK_GXM(sceGxmSetFragmentTexture(gxm, 0, texture));
     }
 

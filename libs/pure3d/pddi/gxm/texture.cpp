@@ -37,6 +37,18 @@
 #define RAD_GXM_TEXTURE_RGB565 1
 #endif
 
+// Static uncompressed textures are stored swizzled (better texture cache behaviour than
+// linear) and get a generated mip chain (no shimmering on distant road/fences/buildings,
+// about +33% memory per texture). Build with -DRAD_GXM_TEXTURE_MIPS=0 to keep only the base
+// level or -DRAD_GXM_TEXTURE_SWIZZLE=0 to go back to linear textures (this also disables mips).
+#ifndef RAD_GXM_TEXTURE_SWIZZLE
+#define RAD_GXM_TEXTURE_SWIZZLE 1
+#endif
+
+#ifndef RAD_GXM_TEXTURE_MIPS
+#define RAD_GXM_TEXTURE_MIPS 1
+#endif
+
 static inline SceGxmTextureFormat PickPixelFormat(pddiPixelFormat format)
 {
     switch (format)
@@ -135,6 +147,168 @@ static inline void FreeGpuMem(void* p)
         radMemorySpaceFreeAligned(radMemorySpace_Cdram, radMemoryGetCurrentAllocator(), p);
 }
 
+// ---------------------------------------------------------------------------------------
+// Mip chain generation. Levels are tight (stride == width) and in memory order, i.e. the
+// same row order Lock(0) hands out, so the box filter does not care about image orientation.
+// ---------------------------------------------------------------------------------------
+static void Downsample32(const uint8_t* src, uint8_t* dst, int w, int h)
+{
+    const int dw = rmt::Max(w >> 1, 1), dh = rmt::Max(h >> 1, 1);
+    const int sx = (w > 1) ? 1 : 0, sy = (h > 1) ? 1 : 0;
+    for(int y = 0; y < dh; y++)
+    {
+        const uint8_t* r0 = src + size_t(y * 2) * w * 4;
+        const uint8_t* r1 = src + size_t(y * 2 + sy) * w * 4;
+        for(int x = 0; x < dw; x++)
+        {
+            const uint8_t* a = r0 + x * 2 * 4;
+            const uint8_t* b = a + sx * 4;
+            const uint8_t* c = r1 + x * 2 * 4;
+            const uint8_t* d = c + sx * 4;
+            for(int k = 0; k < 4; k++)
+                dst[k] = (uint8_t)((a[k] + b[k] + c[k] + d[k] + 2) >> 2);
+            dst += 4;
+        }
+    }
+}
+
+static void Downsample565(const uint8_t* src, uint8_t* dst, int w, int h)
+{
+    const int dw = rmt::Max(w >> 1, 1), dh = rmt::Max(h >> 1, 1);
+    const int sx = (w > 1) ? 1 : 0, sy = (h > 1) ? 1 : 0;
+    for(int y = 0; y < dh; y++)
+    {
+        const uint16_t* r0 = (const uint16_t*)src + size_t(y * 2) * w;
+        const uint16_t* r1 = (const uint16_t*)src + size_t(y * 2 + sy) * w;
+        for(int x = 0; x < dw; x++)
+        {
+            const uint16_t p[4] = { r0[x * 2], r0[x * 2 + sx], r1[x * 2], r1[x * 2 + sx] };
+            int r = 0, g = 0, b = 0;
+            for(int k = 0; k < 4; k++)
+            {
+                r += (p[k] >> 11) & 0x1f;
+                g += (p[k] >> 5) & 0x3f;
+                b += p[k] & 0x1f;
+            }
+            ((uint16_t*)dst)[y * dw + x] = (uint16_t)((((r + 2) >> 2) << 11) | (((g + 2) >> 2) << 5) | ((b + 2) >> 2));
+        }
+    }
+}
+
+// Palette indices cannot be averaged. Pick, out of each 2x2 block, the texel whose colour is
+// closest to the block average: the result only uses colours the palette really has.
+static void DownsampleP8(const uint8_t* src, uint8_t* dst, int w, int h, const uint32_t* pal)
+{
+    const int dw = rmt::Max(w >> 1, 1), dh = rmt::Max(h >> 1, 1);
+    const int sx = (w > 1) ? 1 : 0, sy = (h > 1) ? 1 : 0;
+    for(int y = 0; y < dh; y++)
+    {
+        const uint8_t* r0 = src + size_t(y * 2) * w;
+        const uint8_t* r1 = src + size_t(y * 2 + sy) * w;
+        for(int x = 0; x < dw; x++)
+        {
+            const uint8_t idx[4] = { r0[x * 2], r0[x * 2 + sx], r1[x * 2], r1[x * 2 + sx] };
+            int avg[4] = { 0, 0, 0, 0 };
+            for(int k = 0; k < 4; k++)
+                for(int c = 0; c < 4; c++)
+                    avg[c] += (pal[idx[k]] >> (c * 8)) & 0xff;
+            int best = 0, bestDist = 0x7fffffff;
+            for(int k = 0; k < 4; k++)
+            {
+                int dist = 0;
+                for(int c = 0; c < 4; c++)
+                {
+                    const int d = (int)((pal[idx[k]] >> (c * 8)) & 0xff) * 4 - avg[c];
+                    dist += d * d;
+                }
+                if(dist < bestDist) { bestDist = dist; best = k; }
+            }
+            dst[y * dw + x] = idx[best];
+        }
+    }
+}
+
+static void SwizzleLevel(int bytesPerPixel, uint8_t* dst, uint8_t* src, int w, int h)
+{
+    const uint32_t tile = (uint32_t)rmt::Min(w, h);
+    switch(bytesPerPixel)
+    {
+    case 1: SwizzleTexData8Bpp(dst, src, 0, 0, w, h, w, tile); break;
+    case 2: SwizzleTexData16Bpp(dst, src, 0, 0, w, h, w, tile); break;
+    default: SwizzleTexData32Bpp(dst, src, 0, 0, w, h, w, tile); break;
+    }
+}
+
+// Writes level 0 (always) and the generated levels >= firstLevel (and < mipCount) into the
+// swizzled texture. Levels are stored back to back, each w*h*bytes, largest first.
+// palette is only used for P8.
+void gxmTexture::UploadChain(const uint8_t* level0, const uint32_t* palette, int firstLevel)
+{
+    const int bpp8 = lock.depth / 8;
+    const bool p8 = (lock.format == PDDI_PIXEL_PAL8);
+    int w = xSize, h = ySize;
+    size_t offset = 0;
+    const uint8_t* cur = level0;
+    uint8_t* owned = NULL;      // buffer currently held in 'cur' (not level0)
+    int levelsDone = 0;
+
+    for(int l = 0; l < mipCount; l++)
+    {
+        if(l >= firstLevel)
+        {
+            SwizzleLevel(bpp8, bits + offset, (uint8_t*)cur, w, h);
+            levelsDone = l + 1;
+        }
+        offset += size_t(w) * h * bpp8;
+
+        // P8 without a palette yet: base level only, the rest is built by BuildPaletteMips()
+        if(l + 1 >= mipCount || (p8 && palette == NULL))
+            break;
+
+        const int nw = rmt::Max(w >> 1, 1), nh = rmt::Max(h >> 1, 1);
+        uint8_t* next = (uint8_t*)radMemoryAllocAligned(radMemoryGetCurrentAllocator(), size_t(nw) * nh * bpp8, 16);
+        if(next == NULL)
+        {
+            // out of scratch memory: use the levels we have
+            break;
+        }
+        if(p8)
+            DownsampleP8(cur, next, w, h, palette);
+        else if(bpp8 == 2)
+            Downsample565(cur, next, w, h);
+        else
+            Downsample32(cur, next, w, h);
+
+        if(owned)
+            radMemoryFreeAligned(owned);
+        owned = next;
+        cur = next;
+        w = nw;
+        h = nh;
+    }
+
+    if(owned)
+        radMemoryFreeAligned(owned);
+
+    if(levelsDone < 1)
+        levelsDone = 1;
+    if(levelsDone != validMips)
+    {
+        validMips = levelsDone;
+        CHK_GXM(sceGxmTextureSetMipmapCount(&texture, validMips));
+    }
+}
+
+// P8: the mip chain needs the palette, which the loader supplies after Unlock(0).
+void gxmTexture::BuildPaletteMips()
+{
+    if(pendingLinear == NULL || paletteMem == NULL || nPalette == 0)
+        return;
+    UploadChain((const uint8_t*)pendingLinear, paletteMem, 1);
+    radMemoryFreeAligned(pendingLinear);
+    pendingLinear = NULL;
+}
+
 bool gxmTexture::Create(int x, int y, int bpp, int alphaDepth, int nMip, pddiTextureType textureType, pddiTextureUsageHint usageHint)
 {
     xSize = x;
@@ -195,9 +369,34 @@ bool gxmTexture::Create(int x, int y, int bpp, int alphaDepth, int nMip, pddiTex
     const bool compressed = IsDXT(lock.format);
     const bool yuv = (lock.format == PDDI_PIXEL_YUV);
 
-    // Only the base level lives on the GPU.
+    // Static power-of-two uncompressed textures (min side >= 8) are stored swizzled with a
+    // mip chain whose smallest level is 8 pixels (so every level is a plain w*h*bytes block).
+    swizzled = false;
+    mipCount = 1;
+    validMips = 1;
+#if RAD_GXM_TEXTURE_SWIZZLE
+    if(!compressed && !yuv && usageHint == PDDI_USAGE_STATIC &&
+       log2X >= 3 && log2Y >= 3 &&
+       ((palettized && bpp == 8) || (textureType == PDDI_TEXTYPE_RGB && (bpp == 16 || bpp == 32))))
+    {
+        swizzled = true;
+#if RAD_GXM_TEXTURE_MIPS
+        const int minLog = rmt::Min(log2X, log2Y);
+        if(minLog >= 4)
+            mipCount = minLog - 2;
+#endif
+    }
+#endif
+
     size_t size;
-    if(compressed)
+    if(swizzled)
+    {
+        size = 0;
+        for(int l = 0; l < mipCount; l++)
+            size += size_t(rmt::Max(xSize >> l, 1)) * rmt::Max(ySize >> l, 1) * (bpp / 8);
+        stride = (xSize * bpp) / 8;
+    }
+    else if(compressed)
     {
         const unsigned int blocksize = type == PDDI_TEXTYPE_DXT1 ? 8 : 16;
         size = size_t(ceil(double(xSize)/4)*ceil(double(ySize)/4)*blocksize);
@@ -224,6 +423,16 @@ bool gxmTexture::Create(int x, int y, int bpp, int alphaDepth, int nMip, pddiTex
         bits = AllocGpuMem(size, SCE_GXM_TEXTURE_ALIGNMENT);
         if(bits == NULL)
             break;
+
+        if(swizzled)
+        {
+            CHK_GXM(sceGxmTextureInitSwizzled(&texture, bits, PickPixelFormat(lock.format), xSize, ySize, mipCount));
+            // mips are filled when level 0 is unlocked (P8: when the palette arrives)
+            validMips = (palettized && mipCount > 1) ? 1 : mipCount;
+            if(validMips != mipCount)
+                CHK_GXM(sceGxmTextureSetMipmapCount(&texture, validMips));
+            break;
+        }
 
         if(compressed)
             CHK_GXM(sceGxmTextureInitSwizzled(&texture, bits, PickPixelFormat(lock.format), xSize, ySize, 0));
@@ -331,7 +540,8 @@ bool gxmTexture::Create(int x, int y, int bpp, int alphaDepth, int nMip, pddiTex
         lock.rgbaMask[3] = 0xff000000;
     }
 
-    context->ADD_STAT(PDDI_STAT_TEXTURE_ALLOC_32BIT, (float)((xSize * ySize * lock.depth) / 8192));
+    statKB = (float)size / 1024.0f;
+    context->ADD_STAT(PDDI_STAT_TEXTURE_ALLOC_32BIT, statKB);
     context->ADD_STAT(PDDI_STAT_TEXTURE_COUNT_32BIT, 1);
 
     return true;
@@ -347,6 +557,11 @@ gxmTexture::gxmTexture(gxmContext* c)
     paletteMem = NULL;
     nPalette = 0;
     opaquePalette = false;
+    swizzled = false;
+    mipCount = 1;
+    validMips = 1;
+    pendingLinear = NULL;
+    statKB = 0.0f;
     nMipMap = 0;
     xSize = ySize = 0;
     priority = 15;
@@ -356,10 +571,12 @@ gxmTexture::~gxmTexture()
 {
     if(lockTemp)
         radMemoryFreeAligned(lockTemp);
+    if(pendingLinear)
+        radMemoryFreeAligned(pendingLinear);
     FreeGpuMem(bits);
     FreeGpuMem(paletteMem);
 
-    context->ADD_STAT(PDDI_STAT_TEXTURE_ALLOC_32BIT, -(float)((xSize * ySize * lock.depth) / 8192));
+    context->ADD_STAT(PDDI_STAT_TEXTURE_ALLOC_32BIT, -statKB);
     context->ADD_STAT(PDDI_STAT_TEXTURE_COUNT_32BIT, -1);
 }
 
@@ -421,6 +638,15 @@ pddiLockInfo* gxmTexture::Lock(int mipMap, pddiRect* rect)
         lock.pitch = (lock.width * lock.depth) / 8;
         lock.bits = bits;
     }
+    else if (swizzled && mipMap == 0)
+    {
+        // Rows are written into a tight scratch copy (bottom-up, like the linear path) and
+        // swizzled into the texture by Unlock(0). The mip chain is generated from it there.
+        const int rowBytes = (xSize * lock.depth) / 8;
+        lockTemp = radMemoryAllocAligned(radMemoryGetCurrentAllocator(), size_t(rowBytes) * ySize, 16);
+        lock.pitch = -rowBytes;
+        lock.bits = (uint8_t*)lockTemp + size_t(rowBytes) * (lock.height - 1);
+    }
     else if (mipMap == 0)
     {
         // bottom-up rows, written straight into the texture
@@ -429,8 +655,8 @@ pddiLockInfo* gxmTexture::Lock(int mipMap, pddiRect* rect)
     }
     else
     {
-        // higher levels are not stored: the caller writes into a scratch buffer that
-        // Unlock() throws away
+        // higher levels are generated from level 0: the caller writes into a scratch buffer
+        // that Unlock() throws away
         const int rowBytes = (lock.width * lock.depth) / 8;
         lockTemp = radMemoryAllocAligned(radMemoryGetCurrentAllocator(), size_t(rowBytes) * lock.height, 16);
         lock.pitch = -rowBytes;
@@ -445,7 +671,23 @@ void gxmTexture::Unlock(int mipLevel)
     if(lockTemp == NULL)
         return;
 
-    if(mipLevel == 0 && IsDXT(lock.format))
+    if(mipLevel == 0 && swizzled)
+    {
+        if(lock.format == PDDI_PIXEL_PAL8)
+        {
+            // level 0 now; the other levels once the palette is known (immediately if it already is)
+            if(pendingLinear)
+                radMemoryFreeAligned(pendingLinear);
+            UploadChain((const uint8_t*)lockTemp, NULL, 0);
+            pendingLinear = lockTemp;
+            lockTemp = NULL;
+            if(nPalette > 0)
+                BuildPaletteMips();
+            return;
+        }
+        UploadChain((const uint8_t*)lockTemp, NULL, 0);
+    }
+    else if(mipLevel == 0 && IsDXT(lock.format))
     {
         uint32_t width = ceil(double(xSize) / 4);
         uint32_t height = ceil(double(ySize) / 4);
@@ -497,6 +739,9 @@ void gxmTexture::SetPalette(int nEntries, pddiColour* palette)
     for(int i = 0; i < nEntries; i++)
         paletteMem[i] = src[i] | alpha;
     nPalette = nEntries;
+
+    // P8 mip levels are chosen from the palette colours, so build them now
+    BuildPaletteMips();
 }
 
 int gxmTexture::GetPalette(pddiColour* palette)

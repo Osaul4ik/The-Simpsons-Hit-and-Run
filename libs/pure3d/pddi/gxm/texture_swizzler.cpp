@@ -403,20 +403,21 @@ static void SwizzleTexData(uint8_t *dst, uint8_t *src, uint32_t x, uint32_t y, u
 }
 #pragma GCC diagnostic pop
 
-#if defined(SUPPORT_SMALL_FMT)
+// 8/16/32 bit formats (P8, RGB565, ARGB8888). These always use the plain per-pixel Morton path:
+// it is only run once per texture at load time, and unlike the NEON tile copies above it is
+// independent of source alignment.
 void SwizzleTexData8Bpp(uint8_t *dst, uint8_t *src, uint32_t x, uint32_t y, uint32_t width, uint32_t height, uint32_t stride, uint32_t tileSize)
 {
-    SwizzleTexData<1, CopyPixel8Bpp, CopyTile8Bpp>(dst, src, x, y, width, height, stride, tileSize);
+    SwizzleTexData1x1<1, CopyPixel8Bpp>(dst, src, x, y, width, height, stride, tileSize);
 }
 void SwizzleTexData16Bpp(uint8_t *dst, uint8_t *src, uint32_t x, uint32_t y, uint32_t width, uint32_t height, uint32_t stride, uint32_t tileSize)
 {
-    SwizzleTexData<2, CopyPixel16Bpp, CopyTile16Bpp>(dst, src, x, y, width, height, stride, tileSize);
+    SwizzleTexData1x1<2, CopyPixel16Bpp>(dst, src, x, y, width, height, stride, tileSize);
 }
 void SwizzleTexData32Bpp(uint8_t *dst, uint8_t *src, uint32_t x, uint32_t y, uint32_t width, uint32_t height, uint32_t stride, uint32_t tileSize)
 {
-    SwizzleTexData<4, CopyPixel32Bpp, CopyTile32Bpp>(dst, src, x, y, width, height, stride, tileSize);
+    SwizzleTexData1x1<4, CopyPixel32Bpp>(dst, src, x, y, width, height, stride, tileSize);
 }
-#endif
 #include <psp2/kernel/clib.h>
 
 void SwizzleTexData64Bpp(uint8_t *dst, uint8_t *src, uint32_t x, uint32_t y, uint32_t width, uint32_t height, uint32_t stride, uint32_t tileSize)
