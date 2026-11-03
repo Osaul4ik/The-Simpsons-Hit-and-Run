@@ -106,6 +106,7 @@ private:
     bool valid;
     gxmProgram* program;
     SceGxmFragmentProgram* shader;
+    bool appliedFadeBlend;          // 'shader' blends because what is drawn is fading in
     int appliedContextWriteMask;    // context mask 'shader' was built for
     gxmTextureEnv texEnv[gxmMaxPasses];
     bool noMipBlend = false;

@@ -59,6 +59,9 @@ unsigned int _newlib_heap_size_user = RAD_VITA_HEAP_MB * 1024 * 1024;
 #include <memory/memoryutilities.h>
 #include <memory/srrmemory.h>
 #include <p3d/entity.hpp>
+#ifdef RAD_VITA
+#include <render/DSG/IEntityDSG.h>
+#endif
 
 //========================================
 // Forward Declarations
@@ -73,6 +76,9 @@ static void ProcessCommandLineArgumentsFromFile();
 //     fps=30            30 (default), 42 or 60; also chosen in the game's Options menu,
 //                       which rewrites this line
 //     zonecache=8       max zones kept resident after leaving them (0 = off)
+//     zonefade=600      milliseconds over which what a zone adds fades in, 0 = it just appears
+//     smalldist=100     metres from which small things (hydrants, ...) are not drawn; the original
+//                       game has 63, higher costs more draw calls
 //     framepace=1       0 = the game simulates the time the clock shows instead of the time the
 //                       frames stay on screen
 //     smoothload=1      0 = the loader always gets 4 ms per frame during play, instead of what
@@ -102,6 +108,7 @@ int g_gxmFrameRate          = RAD_VITA_FRAME_RATE;             // read by gxmDis
 #ifdef RAD_LOG
 extern int g_vitaProfEnabled;                                  // code/debug/vitaprof.cpp
 #endif
+extern float g_vitaSmallThingDist;                             // code/render/Culling/WorldScene.cpp
 extern float g_vitaParticleBudget;                             // p3d/effects/particleemitter.cpp
 int g_vitaFramePace         = 1;                               // read by Game::Run
 int g_vitaSmoothLoad        = 1;                               // read by Game::Run
@@ -149,6 +156,14 @@ static void LoadVitaConfig()
         else if( sscanf( line, "prof=%d", &v ) == 1 )
         {
             s_vitaProf = v != 0;
+        }
+        else if( sscanf( line, "zonefade=%d", &v ) == 1 )
+        {
+            IEntityDSG::msFadeMs = v > 0 ? (unsigned int)v : 0;
+        }
+        else if( sscanf( line, "smalldist=%d", &v ) == 1 )
+        {
+            g_vitaSmallThingDist = (float)v;
         }
         else if( sscanf( line, "framepace=%d", &v ) == 1 )
         {

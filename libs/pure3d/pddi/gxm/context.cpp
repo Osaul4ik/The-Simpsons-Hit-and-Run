@@ -29,6 +29,8 @@ void LogProgress( const char* stage ) __attribute__((weak));
 #include <p3d/vitajobs.hpp>
 #include <pddi/pddiext.hpp>
 
+int g_gxmFadeAlpha = 255;    // what is being drawn now fades in, see WorldScene::RenderTranslucent
+
 // Time in the draw calls in the log (code/debug/vitaprof.cpp). This is the part of rendering a
 // thread of its own could take over, without the game code above it having to change.
 #ifdef RAD_LOG
@@ -1074,7 +1076,7 @@ int gxmContext::GetVertexVariant(const gxmTextureEnv* texEnv) const
     if(!variantsAvailable)
         return VARIANT_FULL;
     if(!texEnv->lit)
-        return VARIANT_UNLIT;
+        return g_gxmFadeAlpha < 255 ? VARIANT_DIFFUSE : VARIANT_UNLIT;    // the unlit one has no alpha uniform
     const pddiColour s = texEnv->specular;
     return (s.Red() | s.Green() | s.Blue()) != 0 ? VARIANT_FULL : VARIANT_DIFFUSE;
 }
@@ -1613,6 +1615,9 @@ void gxmContext::SetTextureEnvironment(const gxmTextureEnv* texEnv, gxmProgram* 
         gxmProgram::ComputeLightUniforms(&state.lightingState->light[i], &lightViewPosition[i], &lightViewDirection[i], texEnv->lit, texEnv->shininess, now.lightDir[i], now.lightAtten[i]);
         now.lightColour[i] = state.lightingState->light[i].colour;
     }
+
+    if(g_gxmFadeAlpha < 255)
+        now.material[2].SetAlpha(now.material[2].Alpha() * g_gxmFadeAlpha / 255);
 
     same = same && memcmp(uniformShadow.material, now.material, sizeof(now.material)) == 0;
     for(int i = 0; same && i < PDDI_MAX_LIGHTS; i++)

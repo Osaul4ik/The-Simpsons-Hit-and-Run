@@ -24,6 +24,11 @@
 #include <render/Culling/SwapArray.h>
 #include <render/RenderManager/RenderManager.h>
 #include <p3d/shader.hpp>
+
+#ifdef RAD_VITA
+unsigned int IEntityDSG::msFadeNowMs = 0;
+unsigned int IEntityDSG::msFadeMs = 600;
+#endif
 #endif //WORLD_BUILDER
 
 
@@ -65,6 +70,9 @@ IEntityDSG::IEntityDSG() :
     //{
     //     GetRenderManager()->MunchDelList(5);
     //}
+#ifdef RAD_VITA
+    mFadeStartMs = 0;
+#endif
     mShaderName = "__none__";
     /*
     SwapArray<IEntityDSG*>& rEDL = GetRenderManager()->mEntityDeletionList;

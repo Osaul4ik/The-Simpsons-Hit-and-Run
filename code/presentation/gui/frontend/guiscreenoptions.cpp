@@ -180,7 +180,7 @@ MEMTRACK_PUSH_GROUP( "CGUIScreenOptions" );
                           pGroup->GetSprite( "DisplayMode_ArrowL" ),
                           pGroup->GetSprite( "DisplayMode_ArrowR" ),
 #ifdef RAD_VITA
-                          SELECTION_ENABLED | VALUES_WRAPPED | TEXT_OUTLINE_ENABLED | ( frameRateValue == NULL ? SELECTABLE : 0 ) );
+                          SELECTION_ENABLED | VALUES_WRAPPED | TEXT_OUTLINE_ENABLED );
 #else
                           SELECTION_ENABLED | VALUES_WRAPPED | TEXT_OUTLINE_ENABLED );
 #endif
@@ -447,7 +447,7 @@ void CGuiScreenOptions::HandleMessage
             case GUI_MSG_MENU_SELECTION_CHANGED:
             {
 #ifdef RAD_VITA
-                this->SetButtonVisible( BUTTON_ICON_ACCEPT, param1 != MENU_ITEM_DISPLAY_MODE || m_frameRateLabel != NULL );
+                this->SetButtonVisible( BUTTON_ICON_ACCEPT, param1 != MENU_ITEM_DISPLAY_MODE );
 #else
                 this->SetButtonVisible( BUTTON_ICON_ACCEPT, param1 != MENU_ITEM_DISPLAY_MODE );
 #endif
@@ -493,15 +493,6 @@ void CGuiScreenOptions::HandleMessage
                         m_compileDone = 0;
                         m_compileLabelShown = false;
                         m_compileFinished = false;
-
-                        break;
-                    }
-                    case MENU_ITEM_DISPLAY_MODE:
-                    {
-                        if( m_frameRateLabel != NULL )
-                        {
-                            this->ToggleFrameRate( 1 );
-                        }
 
                         break;
                     }
@@ -634,7 +625,7 @@ void CGuiScreenOptions::InitIntro()
 
     rAssert( m_pMenu != NULL );
 #ifdef RAD_VITA
-    if( m_pMenu->GetSelection() == MENU_ITEM_DISPLAY_MODE && m_frameRateLabel == NULL )
+    if( m_pMenu->GetSelection() == MENU_ITEM_DISPLAY_MODE )
 #else
     if( m_pMenu->GetSelection() == MENU_ITEM_DISPLAY_MODE )
 #endif

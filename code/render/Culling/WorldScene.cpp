@@ -275,6 +275,17 @@ void WorldScene::SetVisCone( rmt::Vector& irView, rmt::Vector& irPosn, float iAn
 //
 //========================================================================
 
+#ifdef RAD_VITA
+#define VITA_NOT_FADING( entity ) ( (entity)->FadeAlpha() == 255 )
+extern int g_gxmFadeAlpha;     // pddi/gxm/context.cpp
+#else
+#define VITA_NOT_FADING( entity ) true
+#endif
+
+#ifdef RAD_VITA
+float g_vitaSmallThingDist = 100.0f;    // "smalldist=" in vita.cfg, code/main/win32main.cpp
+#endif
+
 bool WorldScene::IsSphereInCone( rmt::Vector& irCenter, float iRadius )
 {
     if ( mRenderAll )
@@ -284,7 +295,13 @@ bool WorldScene::IsSphereInCone( rmt::Vector& irCenter, float iRadius )
 
     // nv:  cull small things that are far away
     const float SMALL_THING = 0.85f;
-    const float SMALL_THING_CULL_DIST_SQR = 4000.0f; // 40m
+#ifdef RAD_VITA
+    // Hydrants and the like. The original value of 4000 (63 m, whatever its comment said) makes them
+    // appear out of nothing right in front of the player. From here they are a few pixels.
+    const float SMALL_THING_CULL_DIST_SQR = g_vitaSmallThingDist * g_vitaSmallThingDist;
+#else
+    const float SMALL_THING_CULL_DIST_SQR = 4000.0f;
+#endif
     rmt::Vector v;
     v.Sub(mViewPosn, irCenter);
     if( (iRadius < SMALL_THING) && (v.MagnitudeSqr() > SMALL_THING_CULL_DIST_SQR) )
@@ -979,6 +996,9 @@ void WorldScene::RenderScene( unsigned int iFilter, tPointCamera* ipCam  )
 
 
 
+#ifdef RAD_VITA
+    IEntityDSG::msFadeNowMs = radTimeGetMilliseconds();
+#endif
     mStaticTreeWalker.SetIterFilter( iFilter );
 //////////////////////////////////////////////////////////////////////////
 #ifdef DEBUGWATCH
@@ -1110,7 +1130,7 @@ BEGIN_PROFILE("list construction")
                 }
                 break;
             default:
-                if(!mStaticTreeWalker.rCurrent().mSEntityElems[i]->mTranslucent && mStaticTreeWalker.rCurrent().mSEntityElems[i]->CastsShadow()==0)
+                if(!mStaticTreeWalker.rCurrent().mSEntityElems[i]->mTranslucent && VITA_NOT_FADING( mStaticTreeWalker.rCurrent().mSEntityElems[i] ) && mStaticTreeWalker.rCurrent().mSEntityElems[i]->CastsShadow()==0)
                 {
                     //mpZSorts.AddUse(1);
                     //mpZSorts[mpZSorts.mUseSize-1].entityPtr = mStaticTreeWalker.rCurrent().mSEntityElems[i];
@@ -1170,7 +1190,7 @@ BEGIN_PROFILE("list construction")
                 }
                 break;
             default:
-                if(!mStaticTreeWalker.rCurrent().mAnimCollElems[i]->mTranslucent && mStaticTreeWalker.rCurrent().mAnimCollElems[i]->CastsShadow()==0)
+                if(!mStaticTreeWalker.rCurrent().mAnimCollElems[i]->mTranslucent && VITA_NOT_FADING( mStaticTreeWalker.rCurrent().mAnimCollElems[i] ) && mStaticTreeWalker.rCurrent().mAnimCollElems[i]->CastsShadow()==0)
                 {
                     //mpZSorts.AddUse(1);
                     //mpZSorts[mpZSorts.mUseSize-1].entityPtr = mStaticTreeWalker.rCurrent().mAnimCollElems[i];
@@ -1232,7 +1252,7 @@ BEGIN_PROFILE("list construction")
                 }
                 break;
             default:
-                if(!mStaticTreeWalker.rCurrent().mAnimElems[i]->mTranslucent && mStaticTreeWalker.rCurrent().mAnimElems[i]->CastsShadow()==0)
+                if(!mStaticTreeWalker.rCurrent().mAnimElems[i]->mTranslucent && VITA_NOT_FADING( mStaticTreeWalker.rCurrent().mAnimElems[i] ) && mStaticTreeWalker.rCurrent().mAnimElems[i]->CastsShadow()==0)
                 {
                     //mpZSorts.AddUse(1);
                     //mpZSorts[mpZSorts.mUseSize-1].entityPtr = mStaticTreeWalker.rCurrent().mAnimElems[i];
@@ -1306,7 +1326,7 @@ BEGIN_PROFILE("list construction")
                     mShadowCastersPass1.Add( object );
                 }
             default:
-                if(!mStaticTreeWalker.rCurrent().mDPhysElems[i]->mTranslucent && mStaticTreeWalker.rCurrent().mDPhysElems[i]->CastsShadow()==0)
+                if(!mStaticTreeWalker.rCurrent().mDPhysElems[i]->mTranslucent && VITA_NOT_FADING( mStaticTreeWalker.rCurrent().mDPhysElems[i] ) && mStaticTreeWalker.rCurrent().mDPhysElems[i]->CastsShadow()==0)
                 {
                    // mpZSorts.AddUse(1);
                     //mpZSorts[mpZSorts.mUseSize-1].entityPtr = mStaticTreeWalker.rCurrent().mDPhysElems[i];
@@ -1370,7 +1390,7 @@ BEGIN_PROFILE("list construction")
                 }
                 break;
             default:
-                if(!mStaticTreeWalker.rCurrent().mSPhysElems[i]->mTranslucent && mStaticTreeWalker.rCurrent().mSPhysElems[i]->CastsShadow()==0)
+                if(!mStaticTreeWalker.rCurrent().mSPhysElems[i]->mTranslucent && VITA_NOT_FADING( mStaticTreeWalker.rCurrent().mSPhysElems[i] ) && mStaticTreeWalker.rCurrent().mSPhysElems[i]->CastsShadow()==0)
                 {
                     //mpZSorts.AddUse(1);
                     //mpZSorts[mpZSorts.mUseSize-1].entityPtr = mStaticTreeWalker.rCurrent().mSPhysElems[i];
@@ -1732,7 +1752,13 @@ BEGIN_PROFILE("qsort2 display")
     for(int i=mpZSortsPass2.size()-1; i>-1; i--)
 	{
 //BEGIN_PROFILE("translucent inner")	
+#ifdef RAD_VITA
+        g_gxmFadeAlpha = mpZSortsPass2[i]->FadeAlpha();
+#endif
 		mpZSortsPass2[i]->Display();
+#ifdef RAD_VITA
+        g_gxmFadeAlpha = 255;
+#endif
 //END_PROFILE("translucent inner")	
 	}
 END_PROFILE("qsort2 display")

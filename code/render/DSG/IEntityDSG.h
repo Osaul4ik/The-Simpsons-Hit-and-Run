@@ -74,6 +74,31 @@ public:
     float Rank();
     float mRank;
 
+#ifdef RAD_VITA
+    // Fading in after being loaded while the player is around. Such an entity is drawn with the
+    // translucent ones and WorldScene gives it its alpha.
+    static unsigned int msFadeNowMs;    // this frame's time
+    static unsigned int msFadeMs;       // how long it takes, 0 = no fading ("zonefade=" in vita.cfg)
+    unsigned int mFadeStartMs;
+    void StartFade() { mFadeStartMs = msFadeMs != 0 ? ( msFadeNowMs | 1 ) : 0; }
+    int FadeAlpha()     // 255 = not fading
+    {
+        if( mFadeStartMs == 0 )
+        {
+            return 255;
+        }
+        // the start is rounded up to an odd number, so it can be just ahead of this frame's time
+        const int sinceStart = (int)( msFadeNowMs - mFadeStartMs );
+        const unsigned int age = sinceStart > 0 ? (unsigned int)sinceStart : 0;
+        if( age >= msFadeMs )
+        {
+            mFadeStartMs = 0;
+            return 255;
+        }
+        return (int)( age * 255u / msFadeMs );
+    }
+#endif
+
 
    bool  mTranslucent;
    tName mShaderName;

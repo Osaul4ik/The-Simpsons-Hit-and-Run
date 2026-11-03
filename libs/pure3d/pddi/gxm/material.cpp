@@ -117,6 +117,7 @@ gxmMat::gxmMat(gxmContext* c)
     program = nullptr;
     shader = nullptr;
     appliedContextWriteMask = PDDI_WRITE_ALL;
+    appliedFadeBlend = false;
     appliedNoSpecular = false;
 
     for(int i = 0; i < gxmMaxPasses; i++)
@@ -309,12 +310,17 @@ static_assert((int)PDDI_WRITE_ALL == (int)SCE_GXM_COLOR_MASK_ALL, "PDDI/GXM colo
 // the context's mask (pddiRenderContext::SetColourWrite), e.g. the depth-only HUD map "hole"
 // and lens flare occlusion tests. Programs are cached per blend state by gxmProgram, so
 // switching the mask costs a map lookup, not a new patch.
+extern int g_gxmFadeAlpha;     // context.cpp
+
 void gxmMat::SelectFragmentShader(int contextWriteMask)
 {
     const int i = 0;
     const int writeMask = texEnv[i].writeMask & contextWriteMask;
+    appliedFadeBlend = g_gxmFadeAlpha < 255;
+    const pddiBlendMode blendMode = texEnv[i].alphaBlendMode == PDDI_BLEND_NONE && appliedFadeBlend
+                                    ? PDDI_BLEND_ALPHA : texEnv[i].alphaBlendMode;
 
-    if(texEnv[i].alphaBlendMode == PDDI_BLEND_NONE && writeMask == PDDI_WRITE_ALL)
+    if(blendMode == PDDI_BLEND_NONE && writeMask == PDDI_WRITE_ALL)
     {
         shader = program->PatchFragmentShader(nullptr, context->GetDisplay()->GetMSAAMode());
     }
@@ -322,12 +328,12 @@ void gxmMat::SelectFragmentShader(int contextWriteMask)
     {
         SceGxmBlendInfo blend = {
             (uint8_t)writeMask,
-            alphaBlendFunc[texEnv[i].alphaBlendMode],
-            alphaBlendFunc[texEnv[i].alphaBlendMode],
-            alphaBlendTable[texEnv[i].alphaBlendMode][0],
-            alphaBlendTable[texEnv[i].alphaBlendMode][1],
-            alphaBlendTable[texEnv[i].alphaBlendMode][0],
-            alphaBlendTable[texEnv[i].alphaBlendMode][1]
+            alphaBlendFunc[blendMode],
+            alphaBlendFunc[blendMode],
+            alphaBlendTable[blendMode][0],
+            alphaBlendTable[blendMode][1],
+            alphaBlendTable[blendMode][0],
+            alphaBlendTable[blendMode][1]
         };
         shader = program->PatchFragmentShader(&blend, context->GetDisplay()->GetMSAAMode());
     }
@@ -357,7 +363,7 @@ void gxmMat::SetDevPass(unsigned pass)
     {
         SelectProgram();
     }
-    else if(contextWriteMask != appliedContextWriteMask)
+    else if(contextWriteMask != appliedContextWriteMask || appliedFadeBlend != (g_gxmFadeAlpha < 255))
     {
         SelectFragmentShader(contextWriteMask);
     }
@@ -400,7 +406,7 @@ void gxmMat::PreRender()
             SelectProgram();
             sceGxmSetFragmentProgram(context->GetDisplay()->GetGXMContext(), shader);
         }
-        else if(contextWriteMask != appliedContextWriteMask)
+        else if(contextWriteMask != appliedContextWriteMask || appliedFadeBlend != (g_gxmFadeAlpha < 255))
         {
             SelectFragmentShader(contextWriteMask);
             sceGxmSetFragmentProgram(context->GetDisplay()->GetGXMContext(), shader);

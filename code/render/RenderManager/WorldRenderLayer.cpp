@@ -19,6 +19,13 @@
 // Project Includes
 //========================================
 #include <render/RenderManager/WorldRenderLayer.h>
+#ifdef RAD_VITA
+#include <render/RenderManager/RenderManager.h>
+// What a zone adds while the player is around fades in. Not the first load, behind the loading screen.
+#define VITA_FADE_IN( entity ) if( GetRenderManager()->DoneInitialLoad() ) (entity)->StartFade()
+#else
+#define VITA_FADE_IN( entity )
+#endif
 #include <render/DSG/DynaPhysDSG.h>
 #include <render/DSG/StaticPhysDSG.h>
 #include <render/DSG/IntersectDSG.h>
@@ -460,6 +467,7 @@ void WorldRenderLayer::AddGuts( StaticEntityDSG* ipStaticEntityDSG )
 
    if(mDynaLoadState==msLoad)
    {
+      VITA_FADE_IN( ipStaticEntityDSG );
       mLoadLists[mCurLoadIndex]->mSEntityElems.Add(ipStaticEntityDSG);      
    }
    else
@@ -486,6 +494,7 @@ void WorldRenderLayer::AddGuts( StaticPhysDSG* ipStaticPhysDSG )
 
    if(mDynaLoadState==msLoad)
    {
+      VITA_FADE_IN( ipStaticPhysDSG );
       mLoadLists[mCurLoadIndex]->mSPhysElems.Add(ipStaticPhysDSG);      
    }
    else
@@ -538,6 +547,7 @@ void WorldRenderLayer::AddGuts( AnimCollisionEntityDSG* ipAnimCollDSG )
 
    if(mDynaLoadState==msLoad)
    {
+      VITA_FADE_IN( ipAnimCollDSG );
       mLoadLists[mCurLoadIndex]->mAnimCollElems.Add(ipAnimCollDSG); 
 	  // Add it to a list of managed animentitydsgs so that Update can be called on it every frame
       GetAnimEntityDSGManager()->Add( ipAnimCollDSG );
@@ -566,6 +576,7 @@ void WorldRenderLayer::AddGuts( AnimEntityDSG* ipAnimDSG )
 
    if(mDynaLoadState==msLoad)
    {
+      VITA_FADE_IN( ipAnimDSG );
       mLoadLists[mCurLoadIndex]->mAnimElems.Add(ipAnimDSG);    
 	  // Add it to a list of managed animentitydsgs so that Update can be called on it every frame
 	  GetAnimEntityDSGManager()->Add( ipAnimDSG );
@@ -594,6 +605,7 @@ void WorldRenderLayer::AddGuts( DynaPhysDSG* ipDynaPhysDSG )
 
    if(mDynaLoadState==msLoad)
    {
+      VITA_FADE_IN( ipDynaPhysDSG );
       mLoadLists[mCurLoadIndex]->mDPhysElems.Add(ipDynaPhysDSG);      
    }
    else
