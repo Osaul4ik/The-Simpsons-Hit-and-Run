@@ -196,7 +196,6 @@ static bool IsMusicServiceDue( unsigned int now )
 }
 
 #ifdef RAD_VITA
-int VitaGetFrameRate();         // code/main/win32main.cpp
 int g_vitaSoundWorker = 1;      // "soundthread=" in vita.cfg, code/main/win32main.cpp
 
 static struct
@@ -362,21 +361,6 @@ void SoundManager::UpdateOncePerFrame( unsigned int elapsedTime, ContextEnum con
     {
         return;
     }
-
-#ifdef RAD_VITA
-    // Positions and volumes do not need 60 updates a second, and this costs about 1 ms.
-    static bool s_skippedLast = false;
-    static unsigned int s_skippedTime = 0;
-    if( VitaGetFrameRate() >= 60 && !s_skippedLast && !isPausedForErrors )
-    {
-        s_skippedLast = true;
-        s_skippedTime = elapsedTime;
-        return;
-    }
-    elapsedTime += s_skippedTime;
-    s_skippedTime = 0;
-    s_skippedLast = false;
-#endif
 
     rAssert( m_pSoundRenderMgr != NULL );
     m_pSoundRenderMgr->ServiceOncePerFrame( elapsedTime );
