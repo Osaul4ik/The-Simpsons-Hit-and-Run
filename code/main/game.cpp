@@ -638,9 +638,15 @@ void Game::Run()
         if( hitchContext == CONTEXT_GAMEPLAY )
         {
             static radTime64 sumUs = 0, worstUs = 0;
+            static radTime64 flowUs = 0, renderUs = 0, servicesUs = 0, loaderUs = 0;
             static unsigned nFrames = 0, nOver20 = 0, nOver40 = 0;
             const radTime64 ft = hitchMark[4] - hitchMark[0];
             sumUs += ft;
+            // a part that was skipped this frame (its mark is still 0) counts as nothing
+            if( hitchMark[1] ) flowUs += hitchMark[1] - hitchMark[0];
+            if( hitchMark[2] && hitchMark[1] ) renderUs += hitchMark[2] - hitchMark[1];
+            if( hitchMark[3] && hitchMark[2] ) servicesUs += hitchMark[3] - hitchMark[2];
+            if( hitchMark[3] ) loaderUs += hitchMark[4] - hitchMark[3];
             if( ft > worstUs ) worstUs = ft;
             if( ft > 20000 ) nOver20++;
             if( ft > 40000 ) nOver40++;
@@ -650,7 +656,13 @@ void Game::Run()
                                 (unsigned)( sumUs / nFrames / 1000 ), (unsigned)( ( sumUs / nFrames / 100 ) % 10 ),
                                 (unsigned)( 1000000 * nFrames / ( sumUs ? sumUs : 1 ) ),
                                 (unsigned)( worstUs / 1000 ), nOver20, nOver40 );
+                rReleasePrintf( "[fps] average ms per frame: flow %u.%u, render+vsync %u.%u, services+sound %u.%u, loader %u.%u\n",
+                                (unsigned)( flowUs / nFrames / 1000 ), (unsigned)( ( flowUs / nFrames / 100 ) % 10 ),
+                                (unsigned)( renderUs / nFrames / 1000 ), (unsigned)( ( renderUs / nFrames / 100 ) % 10 ),
+                                (unsigned)( servicesUs / nFrames / 1000 ), (unsigned)( ( servicesUs / nFrames / 100 ) % 10 ),
+                                (unsigned)( loaderUs / nFrames / 1000 ), (unsigned)( ( loaderUs / nFrames / 100 ) % 10 ) );
                 sumUs = 0; worstUs = 0; nFrames = 0; nOver20 = 0; nOver40 = 0;
+                flowUs = 0; renderUs = 0; servicesUs = 0; loaderUs = 0;
             }
         }
 #endif
