@@ -699,7 +699,9 @@ void RenderManager::ContextUpdate( unsigned int iElapsedTime )
 #ifdef LOAD_SYNC
     FlushDelList(); 
 #else
+    BEGIN_PROFILE( "MunchDelList" );
     MunchDelList(2000);   // work on the DelList for up to 2000 microseconds, then return
+    END_PROFILE( "MunchDelList" );
 #endif
     
 	BEGIN_PROFILE( "Lens Flare Frame Buffer Read" );

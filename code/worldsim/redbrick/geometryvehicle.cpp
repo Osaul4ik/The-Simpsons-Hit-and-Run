@@ -859,11 +859,13 @@ BEGIN_PROFILE("GeometryVehicle::Display Render")
         // all the shaders of the compositedrawable's elements to be BLEND_ALPHA...
         // bad news for billboards that are BLEND_NONE or BLEND_ADD...
         //
+        BEGIN_PROFILE( "Traffic: shader broadcast" );
         tShaderIntBroadcast blendModeAlpha( PDDI_SP_BLENDMODE, PDDI_BLEND_ALPHA );
         mCompositeDrawable->ProcessShaders( blendModeAlpha );
 
         tShaderIntBroadcast emissiveAlpha( PDDI_SP_EMISSIVEALPHA, mFadeAlpha );
         mCompositeDrawable->ProcessShaders( emissiveAlpha );
+        END_PROFILE( "Traffic: shader broadcast" );
     }
 
 

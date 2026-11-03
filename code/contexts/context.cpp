@@ -12,6 +12,7 @@
 //========================================
 // System Includes
 //========================================
+#include <debug/profiler.h>
 #include <raddebug.hpp>
 
 //========================================
@@ -102,7 +103,9 @@ void Context::Stop( ContextEnum nextContext )
 //==============================================================================
 void Context::Update( unsigned int elapsedTime )
 {
+    BEGIN_PROFILE( "Input" );
     InputManager::GetInstance()->Update( elapsedTime );
+    END_PROFILE( "Input" );
     this->OnUpdate( elapsedTime );
 }
 

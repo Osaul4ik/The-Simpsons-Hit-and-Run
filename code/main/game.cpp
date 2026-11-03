@@ -523,6 +523,7 @@ void Game::Run()
         // Service the windows message loop.
         //
 #ifdef RAD_WIN32
+        BEGIN_PROFILE( "SDL events" );
         SDL_Event msg;
         while( SDL_PollEvent( &msg ) )
         {
@@ -550,6 +551,7 @@ void Game::Run()
                 }               
             }
         }
+        END_PROFILE( "SDL events" );
 #endif // RAD_WIN32
 
         //
@@ -559,7 +561,9 @@ void Game::Run()
         if ( !mpPlatform->PausedForErrors() )
         {
             DEMOPROFILE( g_DemoProfiler.Start(PROFILE_CHANNEL_AI); )
+            BEGIN_PROFILE( "Timers" );
             mpTimerList->Service(); //nv
+            END_PROFILE( "Timers" );
             mpGameFlow->OnTimerDone(elapsed, NULL);
             HITCH_MARK(1);
             DEMOPROFILE( g_DemoProfiler.Stop(PROFILE_CHANNEL_AI); )
@@ -601,7 +605,9 @@ void Game::Run()
         //
         // Service FTech subsystems.
         //
+        BEGIN_PROFILE( "File service" );
         ::radFileService();
+        END_PROFILE( "File service" );
         ::radDbgComService();
         ::radDebugConsoleService();
         

@@ -13,6 +13,7 @@
 //========================================
 // System Includes
 //========================================
+#include <debug/profiler.h>
 #include <raddebug.hpp>
 #include <radtime.hpp>
 
@@ -305,7 +306,9 @@ void GameFlow::OnTimerDone( unsigned int elapsedtime, void* pUserData )
     //
     // Run the once-per-frame sound update
     //
+    BEGIN_PROFILE( "Sound: once per frame" );
     SoundManager::GetInstance()->UpdateOncePerFrame( elapsedtime, mCurrentContext );
+    END_PROFILE( "Sound: once per frame" );
 
     // Update the current context.
     mpContexts[mCurrentContext]->Update( elapsedtime );

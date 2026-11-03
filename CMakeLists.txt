@@ -116,6 +116,16 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
 			# sqrtf etc. compile to the VFP instruction instead of a libm call that sets errno
 			-fno-math-errno
 		)
+		# Division by a constant becomes a multiplication, and several divisions by the same value
+		# share one reciprocal. The rest of -ffast-math stays off: it assumes no NaN or infinity.
+		option(SRR2_FAST_DIVISION "Replace floating point divisions by multiplications" ON)
+		if(SRR2_FAST_DIVISION)
+			add_compile_options(
+				-fno-trapping-math
+				-fno-signed-zeros
+				-freciprocal-math
+			)
+		endif()
 	endif()
 endif()
 
