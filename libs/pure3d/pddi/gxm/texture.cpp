@@ -442,6 +442,7 @@ void gxmTexture::UploadChain(const uint8_t* level0, const uint32_t* palette, int
     if(levelsDone != validMips)
     {
         validMips = levelsDone;
+        sampler.valid = false;
         CHK_GXM(sceGxmTextureSetMipmapCount(&texture, validMips));
     }
 }
@@ -572,6 +573,7 @@ bool gxmTexture::Create(int x, int y, int bpp, int alphaDepth, int nMip, pddiTex
         if(bits == NULL)
             break;
 
+        sampler.valid = false;
         if(swizzled)
         {
             CHK_GXM(sceGxmTextureInitSwizzled(&texture, bits, PickPixelFormat(lock.format), xSize, ySize, mipCount));
@@ -705,6 +707,7 @@ gxmTexture::gxmTexture(gxmContext* c)
     paletteMem = NULL;
     nPalette = 0;
     opaquePalette = false;
+    sampler.valid = false;
     swizzled = false;
     hasAlpha = false;
     mipCount = 1;
@@ -848,6 +851,55 @@ void gxmTexture::Unlock(int mipLevel)
 
     radMemoryFreeAligned(lockTemp);
     lockTemp = NULL;
+}
+
+void gxmTexture::ApplySamplerState(SceGxmTextureFilter mag, SceGxmTextureFilter min,
+                                   SceGxmTextureAddrMode u, SceGxmTextureAddrMode v,
+                                   int mips, SceGxmTextureMipFilter mipFilter)
+{
+    const bool useMips = mips > 0;   // 0: texture has no mip chain, leave its mip state alone
+    const bool all = !sampler.valid;
+
+    if(all || sampler.mag != (uint8_t)mag)
+    {
+        CHK_GXM(sceGxmTextureSetMagFilter(&texture, mag));
+        sampler.mag = (uint8_t)mag;
+    }
+    if(all || sampler.min != (uint8_t)min)
+    {
+        CHK_GXM(sceGxmTextureSetMinFilter(&texture, min));
+        sampler.min = (uint8_t)min;
+    }
+    if(all || sampler.u != (uint8_t)u)
+    {
+        CHK_GXM(sceGxmTextureSetUAddrMode(&texture, u));
+        sampler.u = (uint8_t)u;
+    }
+    if(all || sampler.v != (uint8_t)v)
+    {
+        CHK_GXM(sceGxmTextureSetVAddrMode(&texture, v));
+        sampler.v = (uint8_t)v;
+    }
+    if(useMips)
+    {
+        if(all || sampler.mipCount != mips)
+        {
+            CHK_GXM(sceGxmTextureSetMipmapCount(&texture, mips));
+            sampler.mipCount = mips;
+        }
+        if(all || sampler.mipFilter != (uint8_t)mipFilter)
+        {
+            CHK_GXM(sceGxmTextureSetMipFilter(&texture, mipFilter));
+            sampler.mipFilter = (uint8_t)mipFilter;
+        }
+    }
+    else if(all)
+    {
+        // never touched: remember the values so the next compare is meaningful
+        sampler.mipCount = 0;
+        sampler.mipFilter = 0xff;
+    }
+    sampler.valid = true;
 }
 
 void gxmTexture::SetPriority(int p)

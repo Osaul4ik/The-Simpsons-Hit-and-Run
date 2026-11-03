@@ -142,12 +142,9 @@ void gxmProgram::SetAlphaTest(void* buffer, const gxmTextureEnv* texEnv)
     }
 }
 
-void gxmProgram::SetLightState( void* buffer, int handle, const pddiLight* lightState, const pddiVector* viewPosition, const pddiVector* viewDirection, bool lit, float shininess )
+void gxmProgram::ComputeLightUniforms( const pddiLight* lightState, const pddiVector* viewPosition, const pddiVector* viewDirection, bool lit, float shininess, float dir[4], float attenuation[4] )
 {
-    if(handle >= PDDI_MAX_LIGHTS)
-        return;
-
-    float dir[4] = { 0.0f, 0.0f, 0.0f, -1.0f };
+    dir[0] = 0.0f; dir[1] = 0.0f; dir[2] = 0.0f; dir[3] = -1.0f;
     if (lightState->enabled && lit)
     {
         switch(lightState->type)
@@ -172,6 +169,17 @@ void gxmProgram::SetLightState( void* buffer, int handle, const pddiLight* light
         }
     }
 
+    attenuation[0] = lightState->attenA;
+    attenuation[1] = lightState->attenB;
+    attenuation[2] = lightState->attenC;
+    attenuation[3] = shininess;
+}
+
+void gxmProgram::SetLightValues( void* buffer, int handle, const float dir[4], pddiColour colour, const float attenuation[4] )
+{
+    if(handle >= PDDI_MAX_LIGHTS)
+        return;
+
     sceGxmSetUniformDataF(buffer, lights[handle].position, 0, 4, dir);
 
     // A disabled light (position.w < 0) is skipped by the shader before its colour and
@@ -179,9 +187,26 @@ void gxmProgram::SetLightState( void* buffer, int handle, const pddiLight* light
     if(dir[3] < 0.0f)
         return;
 
-    UniformColour(buffer, lights[handle].colour, lightState->colour);
-    float attenuation[] = { lightState->attenA, lightState->attenB, lightState->attenC, shininess };
+    UniformColour(buffer, lights[handle].colour, colour);
     sceGxmSetUniformDataF(buffer, lights[handle].attenuation, 0, 4, attenuation);
+}
+
+void gxmProgram::SetLightState( void* buffer, int handle, const pddiLight* lightState, const pddiVector* viewPosition, const pddiVector* viewDirection, bool lit, float shininess )
+{
+    if(handle >= PDDI_MAX_LIGHTS)
+        return;
+
+    float dir[4], attenuation[4];
+    ComputeLightUniforms(lightState, viewPosition, viewDirection, lit, shininess, dir, attenuation);
+    SetLightValues(buffer, handle, dir, lightState->colour, attenuation);
+}
+
+void gxmProgram::SetMaterialColours( void* buffer, pddiColour ambient, pddiColour emissive, pddiColour diffuse, pddiColour specular )
+{
+    UniformColour(buffer, acm, ambient);
+    UniformColour(buffer, ecm, emissive);
+    UniformColour(buffer, dcm, diffuse);
+    UniformColour(buffer, scm, specular);
 }
 
 void gxmProgram::SetAmbientLight(void* buffer, pddiColour ambient)

@@ -46,6 +46,13 @@ public:
     // Number of mip levels that currently hold valid data (1 = base level only).
     int GetMipCount(void) const { return validMips; }
 
+    // Sets filtering / addressing / mip state on the GXM texture, but only the parts that
+    // differ from what was set last time (the five-plus sceGxmTextureSet* calls per material
+    // change add up). mipCount 0 leaves the mip state alone (texture without a mip chain).
+    void ApplySamplerState(SceGxmTextureFilter mag, SceGxmTextureFilter min,
+                           SceGxmTextureAddrMode u, SceGxmTextureAddrMode v,
+                           int mipCount, SceGxmTextureMipFilter mipFilter);
+
 protected:
     gxmContext* context;
     unsigned contextID;
@@ -57,6 +64,15 @@ protected:
 
     SceGxmTexture texture;
     int priority;
+
+    // what ApplySamplerState() last wrote into 'texture'; invalid after anything else touches it
+    struct SamplerState
+    {
+        bool valid;
+        uint8_t mag, min, u, v;
+        uint8_t mipFilter;
+        int mipCount;
+    } sampler;
 
     pddiLockInfo lock;
 

@@ -25,6 +25,17 @@ void LogProgress( const char* stage ) __attribute__((weak));
 #include <SDL.h>
 #include <vector>
 
+// Reuse the bound vertex default uniform buffer for consecutive draws whose matrices, lights and
+// material colours did not change, instead of reserving and filling a new one for every draw.
+// This relies on the default uniform buffer staying bound across draws made with the same vertex
+// program (the shadow is dropped on every vertex program change, mid-scene flush and new scene).
+// On by default. If geometry looks wrong or flickers on hardware, build with
+// -DRAD_GXM_UNIFORM_REUSE=0 to go back to one fresh buffer per draw. The periodic RAD_LOG
+// line shows how many uploads were saved.
+#ifndef RAD_GXM_UNIFORM_REUSE
+#define RAD_GXM_UNIFORM_REUSE 1
+#endif
+
 // vertex arrays rendering
 SceGxmPrimitiveType primTypeTable[5] =
 {
@@ -72,6 +83,8 @@ gxmContext::gxmContext(gxmDevice* dev, gxmDisplay* disp) : pddiBaseContext((pddi
     display = disp;
     context = display->GetGXMContext();
     vertexShader = nullptr;
+    uniformShadow.valid = false;
+    uniformUploads = uniformReuses = 0;
     // DefaultState() below syncs the scissor and stencil state, which look at these
     inScene = false;
     for(int i = 0; i < PDDI_MAX_LIGHTS; i++)
@@ -210,9 +223,9 @@ void gxmContext::BeginFrame()
 #ifdef RAD_LOG
     if(++statFrames >= 900)
     {
-        rReleasePrintf("[gxm] last %u frames: primPool hits=%u misses=%u (pooled %u KB), mid-scene flushes=%u\n",
-                       statFrames, primPoolHits, primPoolMisses, primPoolBytes / 1024, midSceneFlushes);
-        statFrames = primPoolHits = primPoolMisses = midSceneFlushes = 0;
+        rReleasePrintf("[gxm] last %u frames: primPool hits=%u misses=%u (pooled %u KB), mid-scene flushes=%u, vertex uniform uploads=%u reuses=%u\n",
+                       statFrames, primPoolHits, primPoolMisses, primPoolBytes / 1024, midSceneFlushes, uniformUploads, uniformReuses);
+        statFrames = primPoolHits = primPoolMisses = midSceneFlushes = uniformUploads = uniformReuses = 0;
         if( LogProgress != NULL )
         {
             LogProgress( "periodic (900 frames)" );
@@ -231,6 +244,7 @@ void gxmContext::BeginFrame()
         display->GetDepthSurface()
     ));
     inScene = true;
+    InvalidateUniformShadow();          // the uniform ring starts over with every scene
 
     if(display->HasReset())
     {
@@ -1129,6 +1143,7 @@ void gxmContext::SetVertexShader(SceGxmVertexProgram* vert)
     if(vert != vertexShader)
     {
         vertexShader = vert;
+        InvalidateUniformShadow();      // a different vertex program: do not assume its uniforms carry over
         sceGxmSetVertexProgram(context, vert);
     }
 }
@@ -1221,6 +1236,7 @@ gxmProgram* gxmContext::GetFragmentProgram(const gxmTextureEnv* texEnv)
 void gxmContext::MidSceneFlushAndWait()
 {
     ++midSceneFlushes;
+    InvalidateUniformShadow();
     CHK_GXM(sceGxmMidSceneFlush(context, 0, NULL, &streamsHead));
     CHK_GXM(sceGxmNotificationWait(&streamsHead));
     FlushVertexStreams();
@@ -1250,6 +1266,73 @@ bool gxmContext::ReserveFragmentUniforms()
 
 void gxmContext::SetTextureEnvironment(const gxmTextureEnv* texEnv, gxmProgram* fragProgram)
 {
+#if RAD_GXM_UNIFORM_REUSE
+    // Work out what this draw needs, and only reserve + fill a new vertex uniform buffer if it
+    // differs from what the bound one holds. The values are compared after the same
+    // transformations the upload applies (unlit draws turn every light off, etc).
+    VertexUniformShadow now;
+    const pddiMatrix* modelview = state.matrixStack[PDDI_MATRIX_MODELVIEW]->Top();
+    now.valid = true;
+    now.lit = texEnv->lit;
+    now.normalWritten = texEnv->lit;
+    now.modelview = *modelview;
+    now.projection = projection;
+    now.ambientLight = state.lightingState->ambient;
+    if(texEnv->lit)
+    {
+        now.material[0] = texEnv->ambient;
+        now.material[1] = texEnv->emissive;
+        now.material[2] = texEnv->diffuse;
+        now.material[3] = texEnv->specular;
+    }
+    else
+    {
+        now.material[0] = now.material[1] = now.material[2] = now.material[3] = pddiColour(-1);
+    }
+    for(int i = 0; i < PDDI_MAX_LIGHTS; i++)
+    {
+        gxmProgram::ComputeLightUniforms(&state.lightingState->light[i], &lightViewPosition[i], &lightViewDirection[i], texEnv->lit, texEnv->shininess, now.lightDir[i], now.lightAtten[i]);
+        now.lightColour[i] = state.lightingState->light[i].colour;
+    }
+
+    bool same = uniformShadow.valid &&
+                memcmp(&uniformShadow.modelview, &now.modelview, sizeof(pddiMatrix)) == 0 &&
+                memcmp(&uniformShadow.projection, &now.projection, sizeof(pddiMatrix)) == 0 &&
+                memcmp(&uniformShadow.ambientLight, &now.ambientLight, sizeof(pddiColour)) == 0 &&
+                memcmp(uniformShadow.material, now.material, sizeof(now.material)) == 0 &&
+                (!now.lit || uniformShadow.normalWritten);   // an unlit buffer holds no normal matrix
+    for(int i = 0; same && i < PDDI_MAX_LIGHTS; i++)
+    {
+        same = memcmp(uniformShadow.lightDir[i], now.lightDir[i], sizeof(float) * 4) == 0;
+        if(same && now.lightDir[i][3] >= 0.0f)
+        {
+            // only enabled lights have their colour / attenuation uploaded (and read)
+            same = memcmp(&uniformShadow.lightColour[i], &now.lightColour[i], sizeof(pddiColour)) == 0 &&
+                   memcmp(uniformShadow.lightAtten[i], now.lightAtten[i], sizeof(float) * 4) == 0;
+        }
+    }
+
+    if(same)
+    {
+        ++uniformReuses;
+    }
+    else
+    {
+        if(!ReserveVertexUniforms())
+        {
+            InvalidateUniformShadow();
+            return; // ring still exhausted: skip the uniform upload instead of writing through NULL
+        }
+        ++uniformUploads;
+        for(int i = 0; i < PDDI_MAX_LIGHTS; i++)
+            vertexProgram->SetLightValues(vertexUniformBuffer, i, now.lightDir[i], now.lightColour[i], now.lightAtten[i]);
+        vertexProgram->SetAmbientLight(vertexUniformBuffer, now.ambientLight);
+        vertexProgram->SetModelViewMatrix(vertexUniformBuffer, modelview, texEnv->lit);
+        vertexProgram->SetProjectionMatrix(vertexUniformBuffer, &projection);
+        vertexProgram->SetMaterialColours(vertexUniformBuffer, now.material[0], now.material[1], now.material[2], now.material[3]);
+        uniformShadow = now;
+    }
+#else
     if(!ReserveVertexUniforms())
         return; // ring still exhausted: skip the uniform upload instead of writing through NULL
     for(int i = 0; i < PDDI_MAX_LIGHTS; i++)
@@ -1258,6 +1341,7 @@ void gxmContext::SetTextureEnvironment(const gxmTextureEnv* texEnv, gxmProgram* 
     vertexProgram->SetModelViewMatrix(vertexUniformBuffer, state.matrixStack[PDDI_MATRIX_MODELVIEW]->Top(), texEnv->lit);
     vertexProgram->SetProjectionMatrix(vertexUniformBuffer, &projection);
     vertexProgram->SetTextureEnvironment(vertexUniformBuffer, texEnv);
+#endif
     if (texEnv->alphaTest)
     {
         if(ReserveFragmentUniforms())

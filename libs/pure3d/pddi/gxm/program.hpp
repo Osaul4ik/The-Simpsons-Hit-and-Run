@@ -30,6 +30,14 @@ public:
     void SetLightState( void* buffer, int handle, const pddiLight* lightState, const pddiVector* viewPosition, const pddiVector* viewDirection, bool enabled, float shininess );
     void SetAmbientLight( void* buffer, pddiColour ambient );
 
+    // SetLightState() split in two so callers can compare the values before uploading them.
+    // dir.w < 0 means the light is off (the shader then reads nothing else of it).
+    static void ComputeLightUniforms( const pddiLight* lightState, const pddiVector* viewPosition, const pddiVector* viewDirection, bool lit, float shininess, float dir[4], float attenuation[4] );
+    void SetLightValues( void* buffer, int handle, const float dir[4], pddiColour colour, const float attenuation[4] );
+
+    // Same writes SetTextureEnvironment() does, from already computed colours.
+    void SetMaterialColours( void* buffer, pddiColour ambient, pddiColour emissive, pddiColour diffuse, pddiColour specular );
+
     inline bool SupportsLighting() { return acs != nullptr; }
     inline bool SupportsTextures() { return sampler != nullptr; }
 

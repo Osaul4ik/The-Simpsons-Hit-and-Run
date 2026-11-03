@@ -172,6 +172,25 @@ protected:
     void* vertexUniformBuffer;
     void* fragmentUniformBuffer;
 
+    // Shadow of what the currently bound vertex default uniform buffer holds, so consecutive
+    // draws with unchanged matrices / lights / material colours can skip reserving and filling
+    // a new one (see gxmContext::SetTextureEnvironment, RAD_GXM_UNIFORM_REUSE).
+    struct VertexUniformShadow
+    {
+        bool valid;             // the bound buffer was filled from the values below
+        bool normalWritten;     // ... including the normal matrix (only written for lit draws)
+        bool lit;
+        pddiMatrix modelview;
+        pddiMatrix projection;
+        pddiColour ambientLight;
+        pddiColour material[4]; // ambient, emissive, diffuse, specular as uploaded
+        float lightDir[PDDI_MAX_LIGHTS][4];
+        float lightAtten[PDDI_MAX_LIGHTS][4];
+        pddiColour lightColour[PDDI_MAX_LIGHTS];
+    } uniformShadow;
+    unsigned uniformUploads, uniformReuses;     // statistics
+    void InvalidateUniformShadow() { uniformShadow.valid = false; }
+
     SceUID patcherVertexUsseUid;
     SceUID patcherFragmentUsseUid;
     void* patcherBuffer;
