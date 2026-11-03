@@ -70,10 +70,11 @@ static void ProcessCommandLineArgumentsFromFile();
 //=============================================================================
 // Runtime settings (Vita). Read from ux0:data/simpsons/vita.cfg, one "key=value"
 // per line, so they can be tuned without rebuilding:
-//     fps=30            30 (default), 50 or 60; also chosen in the game's Options menu,
-//                       which rewrites this line. Sets the CPU clock too: 60 fps runs at
-//                       444 MHz, 50 and 30 fps at 333 MHz (the GPU stays at 166 MHz)
+//     fps=30            30 (default), 42 or 60; also chosen in the game's Options menu,
+//                       which rewrites this line
 //     zonecache=8       max zones kept resident after leaving them (0 = off)
+//     framepace=1       0 = the game simulates the time the clock shows instead of the time the
+//                       frames stay on screen
 //     smoothload=1      0 = the loader always gets 4 ms per frame during play, instead of what
 //                       the frame has left
 //     log=0             1 = write ux0:data/simpsons/log.txt; 0 = no log and no timing for it
@@ -94,7 +95,7 @@ static void ProcessCommandLineArgumentsFromFile();
 #define RAD_VITA_ZONE_CACHE_MAX_ZONES 8
 #endif
 #ifndef RAD_VITA_FRAME_RATE
-#define RAD_VITA_FRAME_RATE 30            // 30, 50 or 60
+#define RAD_VITA_FRAME_RATE 30            // 30, 42 or 60
 #endif
 int g_vitaZoneCacheMaxZones = RAD_VITA_ZONE_CACHE_MAX_ZONES;   // read by RenderManager
 int g_gxmFrameRate          = RAD_VITA_FRAME_RATE;             // read by gxmDisplay::displayCallback
@@ -102,6 +103,7 @@ int g_gxmFrameRate          = RAD_VITA_FRAME_RATE;             // read by gxmDis
 extern int g_vitaProfEnabled;                                  // code/debug/vitaprof.cpp
 #endif
 extern float g_vitaParticleBudget;                             // p3d/effects/particleemitter.cpp
+int g_vitaFramePace         = 1;                               // read by Game::Run
 int g_vitaSmoothLoad        = 1;                               // read by Game::Run
 extern int g_vitaSoundWorker;                                  // code/sound/soundmanager.cpp
 static int s_vitaProf       = 0;
@@ -109,22 +111,20 @@ int g_gxmTrilinear          = 1;                               // read by gxmMat
 int g_gxmFastShaders        = 1;                               // read by gxmContext::LoadShaderVariants
 int g_gxmHardwareSkinning   = 1;                               // read by gxmContext::LoadShaderVariants
 
-// The game always runs at these clocks, whatever was set before it started.
-#define RAD_VITA_GPU_MHZ 166
-static int VitaCpuMhzForFrameRate( int fps )
+// Set once at startup, whatever was set before the game started. The game does not change them
+// after that, so a clock set from outside while it runs stays.
+static void SetVitaClocks()
 {
-    return fps >= 60 ? 444 : 333;
+    const int cpu = scePowerSetArmClockFrequency( 333 );
+    const int gpu = scePowerSetGpuClockFrequency( 166 );
+    const int bus = scePowerSetBusClockFrequency( 222 );
+    const int xbar = scePowerSetGpuXbarClockFrequency( 166 );
+    rReleasePrintf( "[boot] clocks: CPU %d MHz (0x%08x), GPU %d MHz (0x%08x), bus %d MHz (0x%08x), GPU xbar %d MHz (0x%08x)\n",
+                    scePowerGetArmClockFrequency(), cpu, scePowerGetGpuClockFrequency(), gpu,
+                    scePowerGetBusClockFrequency(), bus, scePowerGetGpuXbarClockFrequency(), xbar );
 }
 
 void VitaSetFrameRate( int fps );
-
-static void SetVitaClocks()
-{
-    const int cpu = scePowerSetArmClockFrequency( VitaCpuMhzForFrameRate( g_gxmFrameRate ) );
-    const int gpu = scePowerSetGpuClockFrequency( RAD_VITA_GPU_MHZ );
-    rReleasePrintf( "[boot] clocks: CPU %d MHz (0x%08x), GPU %d MHz (0x%08x)\n",
-                    scePowerGetArmClockFrequency(), cpu, scePowerGetGpuClockFrequency(), gpu );
-}
 
 static void LoadVitaConfig()
 {
@@ -149,6 +149,10 @@ static void LoadVitaConfig()
         else if( sscanf( line, "prof=%d", &v ) == 1 )
         {
             s_vitaProf = v != 0;
+        }
+        else if( sscanf( line, "framepace=%d", &v ) == 1 )
+        {
+            g_vitaFramePace = v != 0;
         }
         else if( sscanf( line, "smoothload=%d", &v ) == 1 )
         {
@@ -190,8 +194,7 @@ int VitaGetFrameRate()
 
 void VitaSetFrameRate( int fps )
 {
-    g_gxmFrameRate = ( fps >= 60 ) ? 60 : ( fps >= 50 ) ? 50 : 30;
-    SetVitaClocks();
+    g_gxmFrameRate = ( fps >= 60 ) ? 60 : ( fps >= 42 ) ? 42 : 30;
 }
 
 // Writes the current frame rate to vita.cfg, keeping every other line of the file.

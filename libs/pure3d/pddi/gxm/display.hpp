@@ -78,6 +78,7 @@ protected:
         uint32_t width;				///< Framebuffer width
         uint32_t height;			///< Framebuffer height
         uint32_t strideInPixels;	///< Framebuffer stride in pixels
+        uint32_t vblanks;			///< How long the frame stays on screen
         uint32_t flipMode;			///< From #FlipMode
     } DisplayData;
 

@@ -56,8 +56,42 @@
 #include <render/RenderManager/RenderManager.h>
 #include <p3d/fileftt.hpp>
 #ifdef RAD_VITA
+#include <psp2/display.h>
 extern int g_vitaSmoothLoad;     // code/main/win32main.cpp
+extern int g_vitaFramePace;      // code/main/win32main.cpp
 int VitaGetFrameRate();
+unsigned gxmChooseFrameVblanks();    // pddi/gxm/display.cpp
+
+// The time the game simulates for a frame. The clock read at the top of the loop is no good for it:
+// the loop is held back at the swap in the middle of the frame, so how long the rest of the last
+// frame took moves that reading by several ms, while the frames stay on screen for a steady time.
+// Things then move by uneven steps at an even frame rate: jerks, even at a locked 30 fps. So the
+// time is what the screen shows: the vblanks this frame's predecessor will stay on it, plus the
+// ones the game has fallen behind by.
+struct FramePacer
+{
+    int behind;             // vblanks passed and not simulated yet
+    unsigned carryUs;       // what did not fit in whole milliseconds
+
+    unsigned ElapsedMs( unsigned frameVblanks, int vblanksPassed )
+    {
+        const int VBLANK_US = 16683;    // 59.94 Hz
+        behind += vblanksPassed - (int)frameVblanks;
+        int vblanks = (int)frameVblanks;
+        if( behind > 0 )
+        {
+            vblanks += behind;
+            behind = 0;
+        }
+        else if( behind < -4 )
+        {
+            behind = -4;    // the display queue evens this out, it cannot get ahead by much
+        }
+        const unsigned us = carryUs + (unsigned)vblanks * VBLANK_US;
+        carryUs = us % 1000;
+        return us / 1000;
+    }
+};
 #endif
 #include <input/inputmanager.h>
 
@@ -528,6 +562,20 @@ void Game::Run()
         unsigned newTime =  radTimeGetMilliseconds();
         unsigned elapsed = newTime - time;
         time = newTime;
+#ifdef RAD_VITA
+        const unsigned clockElapsed = elapsed;
+        {
+            static FramePacer pacer = { 0, 0 };
+            static int lastVcount = sceDisplayGetVcount();
+            const int vcount = sceDisplayGetVcount();
+            const unsigned frameVblanks = gxmChooseFrameVblanks();
+            if( g_vitaFramePace )
+            {
+                elapsed = pacer.ElapsedMs( frameVblanks, vcount - lastVcount );
+            }
+            lastVcount = vcount;
+        }
+#endif
 
         //
         // Service the windows message loop.
@@ -695,6 +743,11 @@ void Game::Run()
             static radTime64 sumUs = 0, worstUs = 0;
             static radTime64 flowUs = 0, renderUs = 0, servicesUs = 0, loaderUs = 0;
             static unsigned nFrames = 0, nOver20 = 0, nOver40 = 0;
+            static unsigned clockMin = 0xffffffffu, clockMax = 0, simMin = 0xffffffffu, simMax = 0;
+            if( clockElapsed < clockMin ) clockMin = clockElapsed;
+            if( clockElapsed > clockMax ) clockMax = clockElapsed;
+            if( elapsed < simMin ) simMin = elapsed;
+            if( elapsed > simMax ) simMax = elapsed;
             const radTime64 ft = hitchMark[4] - hitchMark[0];
             sumUs += ft;
             // a part that was skipped this frame (its mark is still 0) counts as nothing
@@ -711,8 +764,13 @@ void Game::Run()
                                 (unsigned)( sumUs / nFrames / 1000 ), (unsigned)( ( sumUs / nFrames / 100 ) % 10 ),
                                 (unsigned)( 1000000 * nFrames / ( sumUs ? sumUs : 1 ) ),
                                 (unsigned)( worstUs / 1000 ), nOver20, nOver40 );
-                rReleasePrintf( "[fps] clocks: CPU %d MHz, GPU %d MHz\n",
-                                scePowerGetArmClockFrequency(), scePowerGetGpuClockFrequency() );
+                rReleasePrintf( "[fps] frame time: by the clock %u-%u ms, simulated %u-%u ms\n",
+                                clockMin, clockMax, simMin, simMax );
+                clockMin = simMin = 0xffffffffu;
+                clockMax = simMax = 0;
+                rReleasePrintf( "[fps] clocks: CPU %d MHz, GPU %d MHz, bus %d MHz, GPU xbar %d MHz\n",
+                                scePowerGetArmClockFrequency(), scePowerGetGpuClockFrequency(),
+                                scePowerGetBusClockFrequency(), scePowerGetGpuXbarClockFrequency() );
                 rReleasePrintf( "[fps] average ms per frame: flow %u.%u, render+vsync %u.%u, services+sound %u.%u, loader %u.%u\n",
                                 (unsigned)( flowUs / nFrames / 1000 ), (unsigned)( ( flowUs / nFrames / 100 ) % 10 ),
                                 (unsigned)( renderUs / nFrames / 1000 ), (unsigned)( ( renderUs / nFrames / 100 ) % 10 ),

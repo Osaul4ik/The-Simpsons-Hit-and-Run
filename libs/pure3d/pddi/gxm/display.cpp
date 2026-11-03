@@ -20,6 +20,8 @@
 
 // 1 = 60 fps, 2 = 30 fps; defined in code/main/win32main.cpp (set from vita.cfg)
 extern int g_gxmFrameRate;
+static unsigned VblanksForNextFrame();
+static unsigned s_chosenVblanks = 0;
 
 // Enable the following define to allow Razor HUD.
 //#define ENABLE_RAZOR_HUD
@@ -492,6 +494,8 @@ void gxmDisplay::SwapBuffers(void)
     displayData.width = winWidth;
     displayData.height = winHeight;
     displayData.strideInPixels = ALIGN(winWidth, 64);
+    displayData.vblanks = s_chosenVblanks ? s_chosenVblanks : VblanksForNextFrame();
+    s_chosenVblanks = 0;
     sceGxmDisplayQueueAddEntry(
         displayBufferSync[frontBufferIndex],	// front buffer is OLD buffer
         displayBufferSync[backBufferIndex],		// back buffer is NEW buffer
@@ -521,16 +525,29 @@ float gxmDisplay::EndTiming()
     return (float)SDL_GetTicks() - beginTime;
 }
 
-// How many vblanks of the 60 Hz screen this frame stays on it. 50 fps is not a whole number of
-// vblanks: four frames of one and one of two make 5 frames per 6 vblanks.
+// How many vblanks of the 60 Hz screen this frame stays on it. 42 fps is not a whole number of
+// vblanks: 5 frames per 7 vblanks (42.8 fps), spread as evenly as they go: 1, 2, 1, 2, 1.
 static unsigned VblanksForNextFrame()
 {
-    static unsigned frame = 0;
+    static unsigned remainder = 0;
     if(g_gxmFrameRate >= 60)
         return 1;
-    if(g_gxmFrameRate >= 50)
-        return (++frame % 5) == 0 ? 2 : 1;
+    if(g_gxmFrameRate >= 42)
+    {
+        remainder += 7;
+        const unsigned vblanks = remainder / 5;
+        remainder %= 5;
+        return vblanks;
+    }
     return 2;
+}
+
+// The main loop asks at the start of a frame, because the time the game simulates has to match how
+// long the frame shown before it stays on screen. A swap nobody asked for picks its own.
+unsigned gxmChooseFrameVblanks()
+{
+    s_chosenVblanks = VblanksForNextFrame();
+    return s_chosenVblanks;
 }
 
 void gxmDisplay::displayCallback(const void* callbackData)
@@ -554,7 +571,7 @@ void gxmDisplay::displayCallback(const void* callbackData)
     // screen for 33.3 ms: a locked 30 fps (the rate the game was made for) instead
     // of 60/45/30 jumping when the frame takes 17-25 ms at 333 MHz. The interval
     // comes from "fps=" in vita.cfg (win32main.cpp).
-    const unsigned vblanks = VblanksForNextFrame();
+    const unsigned vblanks = displayData->vblanks;
     if(vblanks > 1)
     {
         CHK_GXM(sceDisplayWaitVblankStartMulti(vblanks));
