@@ -286,6 +286,10 @@ extern int g_gxmFadeAlpha;     // pddi/gxm/context.cpp
 float g_vitaSmallThingDist = 100.0f;    // "smalldist=" in vita.cfg, code/main/win32main.cpp
 // A street lamp is a small sphere around its post, but its light on the ground reaches farther: it
 // went out while still on screen. So things stay until they are this far outside the view.
+// The camera only asks the tree for what is within about 200 m, so tall buildings of the skyline
+// came out of nothing when the player got that close. Things with a bounding sphere this big, in
+// metres, go to the root of the tree, which is always asked. 0 = off, "landmark=" in vita.cfg.
+float g_vitaLandmarkRadius = 30.0f;
 float g_vitaCullMargin = 4.0f;          // "cullmargin=" in vita.cfg, metres
 #endif
 
@@ -1933,6 +1937,9 @@ void WorldScene::PopulateStaticTree()
    int i;
 
    int max=mStaticTreeWalker.NumNodes();
+#ifdef RAD_VITA
+   mStaticTreeWalker.rIthNode(0).mSEntityElems.Reserve( 256 );  // the skyline, see Place
+#endif
    for(i=0; i<max; i++)
    {
       mStaticTreeWalker.rIthNode(i).mSEntityElems.Allocate();
@@ -1999,6 +2006,21 @@ void WorldScene::Place(    StaticEntityDSG*  ipStaticEntity )
    //mStaticTreeWalker.Place( (ISpatialProxyAA&)DrawableSP, mStaticEntities[i] );
 
     SpatialNode* pSpatialNode = &(mStaticTreeWalker.rSeekNode((ISpatialProxyAA&)DrawableSP));
+
+#ifdef RAD_VITA
+   if( g_vitaLandmarkRadius > 0.0f )
+   {
+      rmt::Sphere sphere;
+      ipStaticEntity->GetBoundingSphere( &sphere );
+      SpatialNode* pRoot = &(mStaticTreeWalker.rIthNode(0));
+      // Removal goes through mpSpatialNode. When the root is full it goes where it always went.
+      if( sphere.radius >= g_vitaLandmarkRadius && pRoot != pSpatialNode && pRoot->mSEntityElems.Add(ipStaticEntity) )
+      {
+         ipStaticEntity->mpSpatialNode = pRoot;
+         return;
+      }
+   }
+#endif
 
    if(! pSpatialNode->mSEntityElems.Add(ipStaticEntity))
    {

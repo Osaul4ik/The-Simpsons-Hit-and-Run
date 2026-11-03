@@ -20,6 +20,9 @@
 // Project Includes
 //========================================
 #include <camera/reversecam.h>
+#ifdef RAD_VITA
+#include <math.h>
+#endif
 #include <camera/isupercamtarget.h>
 #include <camera/supercamcontroller.h>
 #include <camera/supercamconstants.h>
@@ -190,20 +193,36 @@ void ReverseCam::Update( unsigned int milliseconds )
     float velMod = velocity.MagnitudeSqr() / ( 20.0f * 20.0f );
     CLAMP_TO_ONE( velMod );
 
+#ifdef RAD_VITA
+    // A frame of 2 vblanks doubled the lag and threw the camera toward its goal, the next one took
+    // it back: that shook the picture. This follows by the same amount per time at any frame length.
+    float lag = 1.0f - powf( 1.0f - rmt::Min( mLag + velMod, 0.99f ), timeMod );
+    mPosition.x += ( desiredPosition.x - mPosition.x ) * lag;
+    mPosition.y += ( desiredPosition.y - mPosition.y ) * lag;
+    mPosition.z += ( desiredPosition.z - mPosition.z ) * lag;
+#else
     float lag = (mLag + velMod) * timeMod;
     CLAMP_TO_ONE( lag );
     MotionCubic( &mPosition.x, &mPositionDelta.x, desiredPosition.x, lag );
     MotionCubic( &mPosition.y, &mPositionDelta.y, desiredPosition.y, lag );
     MotionCubic( &mPosition.z, &mPositionDelta.z, desiredPosition.z, lag );
+#endif
 
     //Add the UP offset to make the camera "stay" looking at the right point.
     desiredTarget.y += mOtherY;
 
+#ifdef RAD_VITA
+    lag = 1.0f - powf( 1.0f - rmt::Min( mTargetLag, 0.99f ), timeMod );
+    mTargetPosition.x += ( desiredTarget.x - mTargetPosition.x ) * lag;
+    mTargetPosition.y += ( desiredTarget.y - mTargetPosition.y ) * lag;
+    mTargetPosition.z += ( desiredTarget.z - mTargetPosition.z ) * lag;
+#else
     lag = mTargetLag * timeMod;
     CLAMP_TO_ONE( lag );
     MotionCubic( &mTargetPosition.x, &mTargetPositionDelta.x, desiredTarget.x, lag );
     MotionCubic( &mTargetPosition.y, &mTargetPositionDelta.y, desiredTarget.y, lag );
     MotionCubic( &mTargetPosition.z, &mTargetPositionDelta.z, desiredTarget.z, lag );
+#endif
 
 /*
     //Are we on level 7?

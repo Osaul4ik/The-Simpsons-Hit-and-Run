@@ -79,6 +79,9 @@ static void ProcessCommandLineArgumentsFromFile();
 //     zonefade=600      milliseconds over which what a zone adds fades in, 0 = it just appears
 //     smalldist=100     metres from which small things (hydrants, ...) are not drawn; the original
 //                       game has 63, higher costs more draw calls
+//     pngyield=1        0 = a PNG image is decoded in one piece, without handing the frame back
+//     landmark=30       things with a bounding sphere at least this big in metres are drawn from any
+//                       distance, so that the skyline does not appear at 200 m; 0 = off
 //     cullmargin=4      metres outside the view at which things are still drawn, so that a street
 //                       lamp and its light do not go out on screen; more costs draw calls
 //     framepace=1       0 = the game simulates the time the clock shows instead of the time the
@@ -112,6 +115,8 @@ extern int g_vitaProfEnabled;                                  // code/debug/vit
 #endif
 extern float g_vitaSmallThingDist;                             // code/render/Culling/WorldScene.cpp
 extern float g_vitaParticleBudget;                             // p3d/effects/particleemitter.cpp
+extern int g_vitaPngYield;                                     // p3d/png.cpp
+extern float g_vitaLandmarkRadius;                             // render/Culling/WorldScene.cpp
 extern float g_vitaCullMargin;                                 // render/Culling/WorldScene.cpp
 int g_vitaFramePace         = 1;                               // read by Game::Run
 int g_vitaSmoothLoad        = 1;                               // read by Game::Run
@@ -163,6 +168,14 @@ static void LoadVitaConfig()
         else if( sscanf( line, "zonefade=%d", &v ) == 1 )
         {
             IEntityDSG::msFadeMs = v > 0 ? (unsigned int)v : 0;
+        }
+        else if( sscanf( line, "pngyield=%d", &v ) == 1 )
+        {
+            g_vitaPngYield = v != 0;
+        }
+        else if( sscanf( line, "landmark=%d", &v ) == 1 )
+        {
+            g_vitaLandmarkRadius = (float)( v > 0 ? v : 0 );
         }
         else if( sscanf( line, "cullmargin=%d", &v ) == 1 )
         {
