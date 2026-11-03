@@ -292,12 +292,12 @@ int gxmMat::CountDevPasses(void)
 }
 
 // pddi write mask bits are passed to GXM as-is (SceGxmBlendInfo::colorMask)
-static_assert(PDDI_WRITE_NONE  == SCE_GXM_COLOR_MASK_NONE, "PDDI/GXM colour mask mismatch");
-static_assert(PDDI_WRITE_ALPHA == SCE_GXM_COLOR_MASK_A,    "PDDI/GXM colour mask mismatch");
-static_assert(PDDI_WRITE_RED   == SCE_GXM_COLOR_MASK_R,    "PDDI/GXM colour mask mismatch");
-static_assert(PDDI_WRITE_GREEN == SCE_GXM_COLOR_MASK_G,    "PDDI/GXM colour mask mismatch");
-static_assert(PDDI_WRITE_BLUE  == SCE_GXM_COLOR_MASK_B,    "PDDI/GXM colour mask mismatch");
-static_assert(PDDI_WRITE_ALL   == SCE_GXM_COLOR_MASK_ALL,  "PDDI/GXM colour mask mismatch");
+static_assert((int)PDDI_WRITE_NONE == (int)SCE_GXM_COLOR_MASK_NONE, "PDDI/GXM colour mask mismatch");
+static_assert((int)PDDI_WRITE_ALPHA == (int)SCE_GXM_COLOR_MASK_A, "PDDI/GXM colour mask mismatch");
+static_assert((int)PDDI_WRITE_RED == (int)SCE_GXM_COLOR_MASK_R, "PDDI/GXM colour mask mismatch");
+static_assert((int)PDDI_WRITE_GREEN == (int)SCE_GXM_COLOR_MASK_G, "PDDI/GXM colour mask mismatch");
+static_assert((int)PDDI_WRITE_BLUE == (int)SCE_GXM_COLOR_MASK_B, "PDDI/GXM colour mask mismatch");
+static_assert((int)PDDI_WRITE_ALL == (int)SCE_GXM_COLOR_MASK_ALL, "PDDI/GXM colour mask mismatch");
 
 // GXM has no global colour mask (glColorMask): it is part of the blend state baked into the
 // fragment program. The material's own mask (PDDI_SP_COLOURWRITE) is therefore combined with
