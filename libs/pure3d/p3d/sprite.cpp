@@ -45,29 +45,6 @@ struct tRect
     int width;
 };
 
-#ifdef RAD_VITA
-// What each sprite is made of, for the broken 2D pictures. Only with log=1, and only the first ones.
-static void VitaLogSprite(const char* kind, const char* name, int w, int h, int depth, int alpha, int polys, tTexture** textures)
-{
-    static int logged = 0;
-    if( logged >= 200 )
-    {
-        return;
-    }
-    logged++;
-    rReleasePrintf( "[sprite] %s %s %dx%d depth=%d alpha=%d tiles=%d:", kind, name ? name : "?", w, h, depth, alpha, polys );
-    for( int i = 0; i < polys && i < 6; i++ )
-    {
-        pddiTexture* t = textures[ i ] ? textures[ i ]->GetTexture() : NULL;
-        if( t )
-        {
-            rReleasePrintf( " %dx%d/f%d", t->GetWidth(), t->GetHeight(), (int)t->GetPixelFormat() );
-        }
-    }
-    rReleasePrintf( "\n" );
-}
-#endif
-
 tSprite::tSprite(tImage* image, tShader* mat, int border, int nx, int ny, tImageConverter* conv)
 {
     P3DASSERT(image);
@@ -109,9 +86,6 @@ tSprite::tSprite(tImage* image, tShader* mat, int border, int nx, int ny, tImage
     width = image->GetWidth();
 
     BuildSections(image, conv);
-#ifdef RAD_VITA
-    VitaLogSprite( "image", image->GetNameDangerous(), width, height, image->GetDepth(), image->GetAlphaDepth(), nPolys, textures );
-#endif
 
     SetColour(tColour(255,255,255));
 }
@@ -189,10 +163,6 @@ tSprite::tSprite(tTexture** images, int w, int h, int count, tShader* mat, int b
     }
 
     P3DASSERT(index == count);
-
-#ifdef RAD_VITA
-    VitaLogSprite( "textures", images[0] ? images[0]->GetNameDangerous() : NULL, width, height, 0, 0, nPolys, textures );
-#endif
 
     SetColour(tColour(255,255,255));
 
