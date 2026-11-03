@@ -51,8 +51,35 @@ struct tRect
 #include <pddi/gxm/texture.hpp>
 // For the broken 2D pictures, only with log=1. A line for each sprite that is loaded, once per name.
 // If the memory of a tile changes after that, something else overwrote it: that gets a line too.
+int g_vitaSpriteDumpW = 0, g_vitaSpriteDumpH = 0;     // "spritedump=600x311" in vita.cfg
+
 void tSprite::VitaLogLoaded()
 {
+    if( g_vitaSpriteDumpW == width && g_vitaSpriteDumpH == height )
+    {
+        // Every tile as it is in memory, to see whether the pixels are wrong or how they are drawn.
+        static int s_dumps = 0;
+        if( s_dumps < 2 )
+        {
+            char path[ 64 ];
+            snprintf( path, sizeof( path ), "ux0:data/simpsons/spritedump%d.bin", s_dumps++ );
+            FILE* file = fopen( path, "wb" );
+            if( file )
+            {
+                for( int i = 0; i < nPolys; i++ )
+                {
+                    gxmTexture* t = (gxmTexture*)textures[ i ]->GetTexture();
+                    const int header[ 6 ] = { t->GetWidth(), t->GetHeight(), t->DebugDepth(), t->DebugStride(), t->DebugSwizzled() ? 1 : 0, (int)t->GetPixelFormat() };
+                    fwrite( header, sizeof( header ), 1, file );
+                    fwrite( &polys[ i * 4 ], sizeof( sprVertex ), 4, file );
+                    const int bytes = t->DebugStride() > 0 ? t->DebugStride() * t->GetHeight() : t->GetWidth() * t->GetHeight() * t->DebugDepth() / 8;
+                    fwrite( t->DebugBits(), bytes, 1, file );
+                }
+                fclose( file );
+                rReleasePrintf( "[sprite] dumped %dx%d to %s, sizeof vertex %d\n", width, height, path, (int)sizeof( sprVertex ) );
+            }
+        }
+    }
     if( !g_radLogEnabled )
     {
         return;
@@ -851,6 +878,24 @@ tTexture* tSpriteLoader::LoadTexture(tChunkFile* f, int depth /*=32*/)
     bool alpha = f->GetLong() == 1;
     unsigned format = f->GetLong();
 
+#ifdef RAD_VITA
+    {
+        // What the sprite files hold, once for each kind.
+        static unsigned seen[ 32 ];
+        static int numSeen = 0;
+        const unsigned kind = ( format << 16 ) | ( (unsigned)bpp << 8 ) | ( palettized ? 2u : 0u ) | ( alpha ? 1u : 0u );
+        bool known = false;
+        for( int i = 0; i < numSeen; i++ )
+        {
+            known = known || seen[ i ] == kind;
+        }
+        if( !known && numSeen < 32 )
+        {
+            seen[ numSeen++ ] = kind;
+            rReleasePrintf( "[spritefile] %s %dx%d bpp=%d palettized=%d alpha=%d format=%u\n", name, width, height, bpp, palettized ? 1 : 0, alpha ? 1 : 0, format );
+        }
+    }
+#endif
     imageFactory->SetDesiredDepth(bpp);
     switch(format)
     {

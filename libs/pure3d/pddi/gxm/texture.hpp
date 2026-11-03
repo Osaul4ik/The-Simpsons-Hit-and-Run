@@ -45,6 +45,11 @@ public:
 
     // Number of mip levels that currently hold valid data (1 = base level only).
     int GetMipCount(void) const { return validMips; }
+    // For the sprite dump: level 0 as it is in memory.
+    const void* DebugBits(void) const { return bits; }
+    int DebugStride(void) const { return stride; }
+    bool DebugSwizzled(void) const { return swizzled; }
+    int DebugDepth(void) const { return lock.depth; }
     // A sample of the pixels of level 0, to see whether the memory of a texture changed.
     unsigned PixelSample(void) const
     {
