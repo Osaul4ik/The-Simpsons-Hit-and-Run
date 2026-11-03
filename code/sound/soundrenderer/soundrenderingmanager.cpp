@@ -669,10 +669,18 @@ void daSoundRenderingManager::Terminate( void )
 
 void daSoundRenderingManager::Service( void )
 {
-    //
-    // Service the radsound system
-    //
+    ServiceRadSound( );
+    ServiceClipLoad( );
+}
+
+// Safe on another thread while the main thread does not touch the sound.
+void daSoundRenderingManager::ServiceRadSound( void )
+{
     ::radSoundHalSystemGet( )->Service( );
+}
+
+void daSoundRenderingManager::ServiceClipLoad( void )
+{
     SoundNucleusServiceClipLoad( );
 }
 

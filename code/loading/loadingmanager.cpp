@@ -310,7 +310,9 @@ void LoadingManager::OnLoadFileComplete( void* pUserData )
     
     extern bool gLoadingSpew;
     
-    if ( !(CommandLineOptions::Get( CLO_NO_LOADING_SPEW )) )
+    // only what is slow enough to matter: a character model every few seconds is not
+    if ( !(CommandLineOptions::Get( CLO_NO_LOADING_SPEW )) &&
+         radTimeGetMilliseconds() - request.startTime >= 300 )
     {
         rReleasePrintf( "<< END >> Async Loading: %s (%u msecs)\n", 
                     request.filename,
@@ -627,10 +629,6 @@ void LoadingManager::ProcessNextRequest()
         
             if ( request.filename[0] != '\0' )
             {
-                if ( !(CommandLineOptions::Get( CLO_NO_LOADING_SPEW )) )
-                {            
-                    rReleasePrintf( "<<START>> Async Loading: %s\n", request.filename );
-                }
 #ifdef RAD_WIN32
                 mRequestsProcessed++;
 #endif

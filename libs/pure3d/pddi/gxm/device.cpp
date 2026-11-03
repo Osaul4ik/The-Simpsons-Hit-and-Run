@@ -31,7 +31,12 @@ bool pddiGxmLog(const char* file, int line, unsigned int err, const char* cond)
 {
     if(err != SCE_OK)
     {
-        rReleasePrintf("[gxm] FAILED 0x%08x at %s:%d: %s\n", err, file, line, cond ? cond : "?");
+        // a call that keeps failing fails once per draw: the first ones say all there is to say
+        static unsigned failures = 0;
+        if(++failures <= 32)
+            rReleasePrintf("[gxm] FAILED 0x%08x at %s:%d: %s\n", err, file, line, cond ? cond : "?");
+        if(failures == 32)
+            rReleasePrintf("[gxm] further failures are not logged\n");
     }
     return err == SCE_OK;
 }

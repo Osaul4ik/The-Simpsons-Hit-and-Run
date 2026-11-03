@@ -188,7 +188,11 @@ Solving_Answer WorldCollisionSolverAgentManager::PreCollisionEvent(Collision& in
                                     simStateB->mAIRefIndex == PhysicsAIRef::redBrickPhizMoveableGroundPlane) )
     {
         //char buffy[128];
-        rReleaseString("something collided with a moveableobject groundplane\n");
+        static unsigned int reported = 0;   // comes every frame while it lasts
+        if( ++reported <= 16 )
+        {
+            rReleaseString("something collided with a moveableobject groundplane\n");
+        }
 
     }
     */
@@ -279,7 +283,11 @@ Solving_Answer WorldCollisionSolverAgentManager::TestImpulse(rmt::Vector& impuls
                                     simStateB->mAIRefIndex == PhysicsAIRef::redBrickPhizMoveableGroundPlane) )
     {
         //char buffy[128];
-        rReleaseString("something is testing impulse with a moveableobject groundplane\n");
+        static unsigned int reported = 0;   // comes every frame while it lasts
+        if( ++reported <= 16 )
+        {
+            rReleaseString("something is testing impulse with a moveableobject groundplane\n");
+        }
 
     }
     */

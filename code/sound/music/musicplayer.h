@@ -160,6 +160,8 @@ class MusicPlayer : public EventListener
         virtual ~MusicPlayer();
 
         void Service();
+        void UpdatePerformances();      // Service() in two parts: this one can run on a worker
+        void ServiceAfterUpdate();      // main thread only
 
         void QueueRadmusicScriptLoad();
         void QueueMusicLevelLoad( RenderEnums::LevelEnum level );

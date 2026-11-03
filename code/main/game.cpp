@@ -51,6 +51,8 @@
 
 #include <render/RenderFlow/renderflow.h>
 #include <sound/soundmanager.h>
+#include <presentation/presentation.h>
+#include <presentation/fmvplayer/fmvplayer.h>
 #include <input/inputmanager.h>
 
 //******************************************************************************
@@ -451,10 +453,11 @@ void Game::Terminate()
 // Frame hitch logging (Vita release log only): splits a long frame into its main parts.
 #if defined(RAD_VITA) && defined(RAD_LOG)
 #define GAME_HITCH_LOG 1
+#include <psp2/power.h>
 #ifndef GAME_HITCH_THRESHOLD_US
 #define GAME_HITCH_THRESHOLD_US 100000
 #endif
-#define HITCH_MARK(i) hitchMark[i] = radTimeGetMicroseconds64()
+#define HITCH_MARK(i) if( g_radLogEnabled ) hitchMark[i] = radTimeGetMicroseconds64()
 #else
 #define HITCH_MARK(i)
 #endif
@@ -564,7 +567,19 @@ void Game::Run()
             if( !mExitNow )
             {
                 DEMOPROFILE( g_DemoProfiler.Start(PROFILE_CHANNEL_RENDER); )
+#ifdef RAD_VITA
+                // Rendering does not call the sound, so the sound can run next to it. Not while a
+                // movie plays: the movie's audio goes through the same sound system from here.
+                if( mpGameFlow->GetCurrentContext() == CONTEXT_GAMEPLAY &&
+                    !GetPresentationManager()->GetFMVPlayer()->IsPlaying() )
+                {
+                    SoundManager::GetInstance()->StartServiceOnWorker();
+                }
+#endif
                 mpRenderFlow->OnTimerDone(elapsed, NULL);
+#ifdef RAD_VITA
+                SoundManager::FinishServiceOnWorker();
+#endif
                 HITCH_MARK(2);
                 DEMOPROFILE( g_DemoProfiler.Stop(PROFILE_CHANNEL_RENDER); )
             }
@@ -622,7 +637,7 @@ void Game::Run()
 
 #ifdef GAME_HITCH_LOG
         HITCH_MARK(4);
-        if( hitchMark[4] - hitchMark[0] >= GAME_HITCH_THRESHOLD_US )
+        if( g_radLogEnabled && hitchMark[4] - hitchMark[0] >= GAME_HITCH_THRESHOLD_US )
         {
             // marks that were skipped (paused, exit) stay 0 and are reported as 0 ms
             rReleasePrintf( "[hitch] frame %u: %u ms (context %d): flow %u, render %u, services+sound %u, loader slice %u ms\n",
@@ -635,7 +650,7 @@ void Game::Run()
 
         // Gameplay frame-time statistics, printed every 300 gameplay frames: average and worst
         // frame time and how many frames missed 60 fps (> 20 ms) and 30 fps (> 40 ms).
-        if( hitchContext == CONTEXT_GAMEPLAY )
+        if( g_radLogEnabled && hitchContext == CONTEXT_GAMEPLAY )
         {
             static radTime64 sumUs = 0, worstUs = 0;
             static radTime64 flowUs = 0, renderUs = 0, servicesUs = 0, loaderUs = 0;
@@ -656,6 +671,8 @@ void Game::Run()
                                 (unsigned)( sumUs / nFrames / 1000 ), (unsigned)( ( sumUs / nFrames / 100 ) % 10 ),
                                 (unsigned)( 1000000 * nFrames / ( sumUs ? sumUs : 1 ) ),
                                 (unsigned)( worstUs / 1000 ), nOver20, nOver40 );
+                rReleasePrintf( "[fps] clocks: CPU %d MHz, GPU %d MHz\n",
+                                scePowerGetArmClockFrequency(), scePowerGetGpuClockFrequency() );
                 rReleasePrintf( "[fps] average ms per frame: flow %u.%u, render+vsync %u.%u, services+sound %u.%u, loader %u.%u\n",
                                 (unsigned)( flowUs / nFrames / 1000 ), (unsigned)( ( flowUs / nFrames / 100 ) % 10 ),
                                 (unsigned)( renderUs / nFrames / 1000 ), (unsigned)( ( renderUs / nFrames / 100 ) % 10 ),

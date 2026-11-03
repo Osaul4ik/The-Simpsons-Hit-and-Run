@@ -124,6 +124,10 @@ class SoundManager : public EventListener,
         // Update routines.
         //
         void Update();
+        // Part of Update() can run on a worker core while the main thread renders.
+        // Finish must come before anything else uses the sound; Update() does it too.
+        void StartServiceOnWorker();
+        static void FinishServiceOnWorker();
         // This one is for expensive stuff like positional sound calculations
         // that we can get away with doing once per frame
         void UpdateOncePerFrame( unsigned int elapsedTime, 
@@ -292,6 +296,9 @@ class SoundManager : public EventListener,
         ~SoundManager();
 
     private:
+#ifdef RAD_VITA
+        static void RunServiceJob( void* arg );
+#endif
         //Prevent wasteful constructor creation.
         SoundManager( const SoundManager& original );
         SoundManager& operator=( const SoundManager& rhs );

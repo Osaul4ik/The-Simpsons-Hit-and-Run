@@ -132,6 +132,10 @@ void rDebugSetOutputHandler     ( radDebugOutputHandler * pOutputProc );
 
 void rReleasePrintf( const char *fmt, ... );
 
+// 0: rReleasePrintf and the other release output do nothing, not even format their text.
+// The Vita sets this from "log=" in vita.cfg, before anything else runs.
+extern int g_radLogEnabled;
+
 //
 // Tune asserts, compiled only in RAD_TUNE and RAD_DEBUG
 //

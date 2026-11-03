@@ -21,6 +21,14 @@
 //========================================
 #include <sound/soundmanager.h>
 #include <debug/profiler.h>
+#ifdef RAD_VITA
+#include <p3d/vitajobs.hpp>
+#include <psp2/kernel/processmgr.h>
+#include <psp2/kernel/threadmgr.h>
+#ifdef RAD_LOG
+extern "C" void vitaProfAdd( const char* name, unsigned microseconds );
+#endif
+#endif
 
 #include <sound/soundrenderer/soundrenderingmanager.h>
 #include <sound/soundrenderer/idasoundtuner.h>
@@ -174,8 +182,36 @@ void SoundManager::DestroyInstance()
 // Return:      None.
 //
 //==============================================================================
+// The music only needs servicing as often as the game does at 30 fps: it works from the time
+// that has passed, and this costs up to 3 ms per call on the Vita.
+static unsigned int s_lastMusicService = 0;
+static bool IsMusicServiceDue( unsigned int now )
+{
+    if( now - s_lastMusicService >= 30 )
+    {
+        s_lastMusicService = now;
+        return true;
+    }
+    return false;
+}
+
+#ifdef RAD_VITA
+int g_vitaSoundWorker = 1;      // "soundthread=" in vita.cfg, code/main/win32main.cpp
+
+static struct
+{
+    vitaJob job;
+    bool music;
+    unsigned int microseconds;
+} s_workerJob;
+static bool s_workerRunning = false;
+static bool s_workerRanThisFrame = false;
+#endif
+
 void SoundManager::Update()
 {
+    FinishServiceOnWorker();
+
     unsigned int now = radTimeGetMilliseconds( );
     unsigned int dif = now - gLastServiceTime;
     
@@ -193,12 +229,22 @@ void SoundManager::Update()
         return;
     }
 
-    // The music only needs servicing as often as the game does at 30 fps: it works from the time
-    // that has passed, and this costs up to 3 ms per call on the Vita.
-    static unsigned int s_lastMusicService = 0;
-    if( now - s_lastMusicService >= 30 )
+#ifdef RAD_VITA
+    if( s_workerRanThisFrame )
     {
-        s_lastMusicService = now;
+        // the worker did its part while the main thread was rendering, here is the rest
+        s_workerRanThisFrame = false;
+        if( s_workerJob.music )
+        {
+            m_musicPlayer->ServiceAfterUpdate();
+        }
+        m_pSoundRenderMgr->ServiceClipLoad();
+        return;
+    }
+#endif
+
+    if( IsMusicServiceDue( now ) )
+    {
         BEGIN_PROFILE( "Sound: music" );
         m_musicPlayer->Service();
         END_PROFILE( "Sound: music" );
@@ -208,6 +254,79 @@ void SoundManager::Update()
     BEGIN_PROFILE( "Sound: render" );
     m_pSoundRenderMgr->Service();
     END_PROFILE( "Sound: render" );
+}
+
+#ifdef RAD_VITA
+void SoundManager::RunServiceJob( void* arg )
+{
+    SoundManager* self = (SoundManager*)arg;
+    const unsigned int start = sceKernelGetProcessTimeLow();
+    if( s_workerJob.music )
+    {
+        self->m_musicPlayer->UpdatePerformances();
+    }
+    self->m_pSoundRenderMgr->ServiceRadSound();
+    s_workerJob.microseconds = sceKernelGetProcessTimeLow() - start;
+}
+#endif
+
+//==============================================================================
+// SoundManager::StartServiceOnWorker
+//==============================================================================
+//
+// Description: Lets a worker core do the expensive part of Update() while the
+//              main thread renders, the one stretch of the frame where the game
+//              does not call the sound. FinishServiceOnWorker() has to be called
+//              before anything else uses the sound; Update() then does the rest.
+//
+// Parameters:	None.
+//
+// Return:      None.
+//
+//==============================================================================
+void SoundManager::StartServiceOnWorker()
+{
+#ifdef RAD_VITA
+    if( !g_vitaSoundWorker || m_isMuted || s_workerRunning || s_workerRanThisFrame )
+    {
+        return;
+    }
+    s_workerJob.music = IsMusicServiceDue( radTimeGetMilliseconds( ) );
+    if( vitaJobSubmit( &s_workerJob.job, &SoundManager::RunServiceJob, this ) )
+    {
+        s_workerRunning = true;
+    }
+    else if( s_workerJob.music )
+    {
+        // no room in the queue: Update() will do all of it, including this music service
+        s_lastMusicService = 0;
+    }
+#endif
+}
+
+void SoundManager::FinishServiceOnWorker()
+{
+#ifdef RAD_VITA
+    if( !s_workerRunning )
+    {
+        return;
+    }
+    while( !vitaJobIsDone( &s_workerJob.job ) )
+    {
+        sceKernelDelayThread( 50 );
+    }
+    s_workerRunning = false;
+    s_workerRanThisFrame = true;
+#ifdef RAD_LOG
+    vitaProfAdd( "Sound: on worker core", s_workerJob.microseconds );
+#endif
+#endif
+}
+
+// For the event manager, which should not need the sound headers for this.
+void SoundFinishServiceOnWorker()
+{
+    SoundManager::FinishServiceOnWorker();
 }
 
 //==============================================================================
@@ -224,6 +343,7 @@ void SoundManager::Update()
 //==============================================================================
 void SoundManager::UpdateOncePerFrame( unsigned int elapsedTime, ContextEnum context, bool useContext, bool isPausedForErrors )
 {
+    FinishServiceOnWorker();
 
     unsigned int now = radTimeGetMilliseconds( );
     unsigned int dif = now - gLastServiceOncePerFrameTime;

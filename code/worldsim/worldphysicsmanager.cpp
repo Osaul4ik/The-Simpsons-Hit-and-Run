@@ -1212,7 +1212,11 @@ void WorldPhysicsManager::Update(unsigned int timeDeltaMilliSeconds)
     // cap
     if(numSubsteps > 10)
     {
-        rReleasePrintf("\nhit 10 substeps!\n");
+        static unsigned int hits = 0;   // a slow stretch hits this every frame
+        if( ++hits <= 16 )
+        {
+            rReleasePrintf("\nhit 10 substeps!\n");
+        }
         numSubsteps = 10;
     }
    

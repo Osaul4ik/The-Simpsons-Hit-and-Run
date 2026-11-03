@@ -12,7 +12,7 @@
 #include <psp2/kernel/processmgr.h>
 #include <psp2/kernel/threadmgr.h>
 
-int g_vitaProfEnabled = 1;      // read from vita.cfg, code/main/win32main.cpp
+int g_vitaProfEnabled = 0;      // read from vita.cfg, code/main/win32main.cpp
 
 namespace
 {

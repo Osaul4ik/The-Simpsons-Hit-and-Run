@@ -332,8 +332,14 @@ void rDebugInfoString_Implementation( const char * pString )
 // Function: rDebugString_Implementation
 //=============================================================================
 
+int g_radLogEnabled = 1;
+
 void rDebugString_Implementation( const char * pString )
 {
+    if( !g_radLogEnabled )
+    {
+        return;
+    }
     g_pDebugHandler( pString );
 }
 
@@ -419,6 +425,11 @@ void rDebuggerString_Implementation( const char* string )
 
 void rReleasePrintf( const char *fmt, ... )
 {
+    if( !g_radLogEnabled )
+    {
+        return;
+    }
+
     va_list va_alist;
     char    printfstr[ RAD_DEBUG_PRINT_MAX_LENGTH ];
 

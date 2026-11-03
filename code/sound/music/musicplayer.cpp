@@ -1047,8 +1047,14 @@ void MusicPlayer::SetUpPerformance(
 //=============================================================================
 void MusicPlayer::Service()
 {
-    HeapMgr()->PushHeap( GMA_AUDIO_PERSISTENT );
+    UpdatePerformances();
+    ServiceAfterUpdate();
+}
 
+// Safe on another thread while the main thread does not touch the sound: radmusic takes its memory
+// from the allocator it was initialized with, so this does not use the heap stack.
+void MusicPlayer::UpdatePerformances()
+{
     unsigned int now = ::radTimeGetMilliseconds( );
     unsigned int dif = now - m_lastServiceTime;
     
@@ -1063,6 +1069,11 @@ void MusicPlayer::Service()
     }
     
     m_lastServiceTime = now;
+}
+
+void MusicPlayer::ServiceAfterUpdate()
+{
+    HeapMgr()->PushHeap( GMA_AUDIO_PERSISTENT );
 
     //
     // According to Tim, this can be changed to a synchronous

@@ -1239,7 +1239,6 @@ ZSTALL_END( postT0, "zone-complete: DoPostDynaLoad", 10 );
         if( i<mpZEL->GetNumLoadZones() && (msLayer & RenderEnums::LevelSlot) )
         {
             rReleasePrintf("Zone Loading Ended: %s\n",mpZEL->GetLoadZone(i));
-            LogProgressBrief( "zone loaded" );
             //HeapMgr()->DumpHeapStats(true);
             tUID tempUID = tName::MakeUID(mpZEL->GetLoadZone(i));
 ZSTALL_BEGIN( namedT0 );
@@ -1406,7 +1405,6 @@ END_PROFILE( "Add Requests Int" );
 ZSTALL_BEGIN( endT0 );
                     GetEventManager()->TriggerEvent( EVENT_ALL_DYNAMIC_ZONE_END );
 ZSTALL_END( endT0, "zone-complete: EVENT_ALL_DYNAMIC_ZONE_END", 10 );
-                    rReleasePrintf("ZoneLoadingEnded Verified\n");
                     LogProgressBrief( "all zones loaded" );
                     mbDynaLoading = false;
                     AllWrappers::GetInstance()->mLoader( AllWrappers::msBillboard     ).ModRegdListener( this, RenderEnums::IgnoreGuts );         
@@ -1718,15 +1716,6 @@ END_PROFILE( "RenderManager HandleEvent" );
             bool alreadyLoaded = true;
             tName GiveItAFuckinName;
 
-            rReleasePrintf("Encountered Dynamic Zone:\n");
-            for(i=0; i<mpZEL->GetNumDumpZones(); i++)
-            {
-               rReleasePrintf("Dump: %s\n",mpZEL->GetDumpZone(i));
-            }
-            for(i=0; i<mpZEL->GetNumLoadZones(); i++)
-            {
-               rReleasePrintf("Load: %s\n",mpZEL->GetLoadZone(i));
-            }
             //////////////////////////////////////////////////////////////////////////
             // Zone Dumping
             //////////////////////////////////////////////////////////////////////////
@@ -1867,7 +1856,6 @@ END_PROFILE( "Add Requests Int" );
             }
             else
             {
-                rReleasePrintf("Nothing to load in that Zone, checking for others...\n");
                 if( mZELs.mUseSize != 0 )
                 {
                     mpZEL = mZELs[0];
@@ -1887,7 +1875,6 @@ END_PROFILE( "Add Requests Int" );
 ZSTALL_BEGIN( endT0 );
                     GetEventManager()->TriggerEvent( EVENT_ALL_DYNAMIC_ZONE_END );
 ZSTALL_END( endT0, "zone-complete: EVENT_ALL_DYNAMIC_ZONE_END", 10 );
-                    rReleasePrintf("ZoneLoadingEnded Verified\n");
                     LogProgressBrief( "all zones loaded" );
                     mbDynaLoading = false;
                     AllWrappers::GetInstance()->mLoader( AllWrappers::msBillboard     ).ModRegdListener( this, RenderEnums::IgnoreGuts );         

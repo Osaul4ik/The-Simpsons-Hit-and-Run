@@ -129,6 +129,15 @@ void tFileFTT::YieldIfDueOnLoader(void)
 }
 
 //--------------------------------------------------------------------------
+bool tFileFTT::IsOnLoadingScreen()
+{
+#ifdef RAD_VITA
+    return gSleepWhileWaiting;
+#else
+    return false;
+#endif
+}
+
 void tFileFTT::WaitForJob(const vitaJob* job)
 {
 #ifdef RAD_VITA
@@ -302,7 +311,10 @@ void tFileFTT::WaitForCompletion( void )
     if(i>0)
     {
         time = radTimeGetMicroseconds64()-time;
-        rReleasePrintf("P3D Loading Starved for %d frames, %d ms\n",i,(time/1000));
+        if(time >= 100000 && !IsOnLoadingScreen())
+        {
+            rReleasePrintf("P3D Loading Starved for %d frames, %d ms\n",i,(time/1000));
+        }
     }
 }
 

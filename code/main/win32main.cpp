@@ -73,7 +73,11 @@ static void ProcessCommandLineArgumentsFromFile();
 //     fps=30            30 (default, 2 vblanks per frame) or 60 (1 vblank); also
 //                       chosen in the game's Options menu, which rewrites this line
 //     zonecache=6       max zones kept resident after leaving them (0 = off)
-//     prof=1            0 = no per-mark timing in the log (only in builds with a log)
+//     log=0             1 = write ux0:data/simpsons/log.txt; 0 = no log and no timing for it
+//     prof=0            1 = also time every mark and add the [prof] table to the log (costs
+//                       about 2 ms per frame, so leave it off when judging the frame rate)
+//     cpu=444           CPU clock in MHz, 444 or 333 (the GPU stays at 166 MHz)
+//     soundthread=1     0 = service the sound on the main thread
 //     trilinear=1       0 = nearest mip level instead of blending between levels
 //     fastshaders=1     0 = only the packaged shaders, no runtime compiled variants
 //     hwskin=1          0 = skin on the CPU (NEON) even when the shaders compiled
@@ -92,17 +96,19 @@ int g_gxmVblankInterval     = RAD_VITA_VBLANK_INTERVAL;        // read by gxmDis
 #ifdef RAD_LOG
 extern int g_vitaProfEnabled;                                  // code/debug/vitaprof.cpp
 #endif
+extern int g_vitaSoundWorker;                                  // code/sound/soundmanager.cpp
+static int s_vitaCpuMhz     = 444;
+static int s_vitaProf       = 0;
 int g_gxmTrilinear          = 1;                               // read by gxmMat::SetDevPass
 int g_gxmFastShaders        = 1;                               // read by gxmContext::LoadShaderVariants
 int g_gxmHardwareSkinning   = 1;                               // read by gxmContext::LoadShaderVariants
 
 // The game always runs at these clocks, whatever was set before it started.
-#define RAD_VITA_CPU_MHZ 333
 #define RAD_VITA_GPU_MHZ 166
 
 static void SetVitaClocks()
 {
-    const int cpu = scePowerSetArmClockFrequency( RAD_VITA_CPU_MHZ );
+    const int cpu = scePowerSetArmClockFrequency( s_vitaCpuMhz );
     const int gpu = scePowerSetGpuClockFrequency( RAD_VITA_GPU_MHZ );
     rReleasePrintf( "[boot] clocks: CPU %d MHz (0x%08x), GPU %d MHz (0x%08x)\n",
                     scePowerGetArmClockFrequency(), cpu, scePowerGetGpuClockFrequency(), gpu );
@@ -110,6 +116,7 @@ static void SetVitaClocks()
 
 static void LoadVitaConfig()
 {
+    g_radLogEnabled = 0;    // no line in the file, no log
     FILE* f = fopen( "ux0:data/simpsons/vita.cfg", "r" );
     if( f == NULL )
     {
@@ -123,12 +130,22 @@ static void LoadVitaConfig()
         {
             g_gxmVblankInterval = ( v >= 60 ) ? 1 : 2;
         }
-#ifdef RAD_LOG
+        else if( sscanf( line, "log=%d", &v ) == 1 )
+        {
+            g_radLogEnabled = v != 0;
+        }
         else if( sscanf( line, "prof=%d", &v ) == 1 )
         {
-            g_vitaProfEnabled = v != 0;
+            s_vitaProf = v != 0;
         }
-#endif
+        else if( sscanf( line, "cpu=%d", &v ) == 1 )
+        {
+            s_vitaCpuMhz = ( v == 333 ) ? 333 : 444;
+        }
+        else if( sscanf( line, "soundthread=%d", &v ) == 1 )
+        {
+            g_vitaSoundWorker = v != 0;
+        }
         else if( sscanf( line, "trilinear=%d", &v ) == 1 )
         {
             g_gxmTrilinear = v != 0;
@@ -425,6 +442,10 @@ static void LogHeap( const char* name, IRadMemoryHeap* heap )
 
 void LogProgress( const char* stage )
 {
+    if( !g_radLogEnabled )
+    {
+        return;     // the memory state below takes time to gather
+    }
     rReleasePrintf( "[boot] %s\n", stage );
 #ifdef RAD_VITA
     SceKernelFreeMemorySizeInfo info;
@@ -453,6 +474,10 @@ void LogProgress( const char* stage )
 // after every streamed zone.
 void LogProgressBrief( const char* stage )
 {
+    if( !g_radLogEnabled )
+    {
+        return;
+    }
     rReleasePrintf( "[boot] %s\n", stage );
 #ifdef RAD_VITA
     SceKernelFreeMemorySizeInfo info;
@@ -545,11 +570,15 @@ extern "C" int main( int argc, char *argv[] )
 #ifdef RAD_VITA
 	chdir( "ux0:data/simpsons" );
     LoadVitaConfig();
-    SetVitaClocks();
 #ifdef RAD_LOG
-    s_pLogFile = fopen( "ux0:data/simpsons/log.txt", "w" );
+    g_vitaProfEnabled = g_radLogEnabled && s_vitaProf;
+    if( g_radLogEnabled )
+    {
+        s_pLogFile = fopen( "ux0:data/simpsons/log.txt", "w" );
+    }
     rReleasePrintf( "[boot] newlib heap requested: %d MB\n", RAD_VITA_HEAP_MB );
 #endif
+    SetVitaClocks();
 #endif
     LogProgress( "start" );
 

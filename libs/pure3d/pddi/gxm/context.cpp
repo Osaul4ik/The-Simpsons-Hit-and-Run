@@ -34,13 +34,18 @@ void LogProgress( const char* stage ) __attribute__((weak));
 #ifdef RAD_LOG
 #include <psp2/kernel/processmgr.h>
 extern "C" void vitaProfAdd(const char* name, unsigned microseconds);
+extern int g_vitaProfEnabled;
 namespace
 {
     struct GxmDrawTimer
     {
         SceUInt32 start;
-        GxmDrawTimer() : start(sceKernelGetProcessTimeLow()) {}
-        ~GxmDrawTimer() { vitaProfAdd("GXM: draw calls", sceKernelGetProcessTimeLow() - start); }
+        GxmDrawTimer() : start(g_vitaProfEnabled ? sceKernelGetProcessTimeLow() : 0) {}
+        ~GxmDrawTimer()
+        {
+            if(g_vitaProfEnabled)
+                vitaProfAdd("GXM: draw calls", sceKernelGetProcessTimeLow() - start);
+        }
     };
 }
 #define GXM_DRAW_TIMER() GxmDrawTimer gxmDrawTimer
@@ -291,14 +296,14 @@ void gxmContext::BeginFrame()
         DrainPrimPool();
 
 #ifdef RAD_LOG
-    if(++statFrames >= 900)
+    if(++statFrames >= 3600)
     {
         rReleasePrintf("[gxm] last %u frames: primPool hits=%u misses=%u (pooled %u KB), mid-scene flushes=%u, vertex uniform uploads=%u reuses=%u\n",
                        statFrames, primPoolHits, primPoolMisses, primPoolBytes / 1024, midSceneFlushes, uniformUploads, uniformReuses);
         statFrames = primPoolHits = primPoolMisses = midSceneFlushes = uniformUploads = uniformReuses = 0;
         if( LogProgress != NULL )
         {
-            LogProgress( "periodic (900 frames)" );
+            LogProgress( "periodic (3600 frames)" );
         }
     }
 #endif

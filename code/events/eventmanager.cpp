@@ -246,8 +246,16 @@ void EventManager::RemoveAll( EventListener* pListener )
 // Return:      Number of listeners notified.
 //
 //==============================================================================
+#ifdef RAD_VITA
+// Every listener may call the sound, which a worker core could be servicing right now.
+void SoundFinishServiceOnWorker();
+#endif
+
 int EventManager::TriggerEvent( EventEnum id, void* pEventData ) const
 {
+#ifdef RAD_VITA
+    SoundFinishServiceOnWorker();
+#endif
     const ListenerVector& listeners = mListenerMap[id];
     
     ListenerVector::const_iterator iter = listeners.begin();

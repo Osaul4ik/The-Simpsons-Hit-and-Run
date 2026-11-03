@@ -114,6 +114,8 @@ public:
     void Initialize( void );
     bool IsInitialized( void );
     void Service( void );
+    void ServiceRadSound( void );   // Service() in two parts: this one can run on a worker
+    void ServiceClipLoad( void );   // main thread only
     void ServiceOncePerFrame( unsigned int elapsedTime );
     void Render( void );
 

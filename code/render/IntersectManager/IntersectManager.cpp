@@ -462,7 +462,11 @@ BEGIN_PROFILE("::FindStaticPhysElems")
    j= pTreeIter->mCurNodes.mUseSize-1;
     if(j>100)
     {
-       rReleasePrintf("\n\nWTF?  %d nodes \n\n", j);
+       static unsigned int reported = 0;    // comes every frame while it lasts
+       if( ++reported <= 16 )
+       {
+          rReleasePrintf("\n\nWTF?  %d nodes \n\n", j);
+       }
     }
 
 //   BEGIN_PROFILE( "Quack" );
@@ -546,7 +550,11 @@ BEGIN_PROFILE("::FindStaticElems")
    j= pTreeIter->mCurNodes.mUseSize-1;
     if(j>100)
     {
-       rReleasePrintf("\n\nWTF?  %d nodes \n\n", j);
+       static unsigned int reported = 0;    // comes every frame while it lasts
+       if( ++reported <= 16 )
+       {
+          rReleasePrintf("\n\nWTF?  %d nodes \n\n", j);
+       }
     }
 
 //   BEGIN_PROFILE( "Quack" );

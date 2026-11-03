@@ -43,7 +43,7 @@
 #include <psp2/kernel/threadmgr.h>
 #include <radtime.hpp>
 #ifndef P3D_STALL_LOG_THRESHOLD_US
-#define P3D_STALL_LOG_THRESHOLD_US 20000
+#define P3D_STALL_LOG_THRESHOLD_US 50000
 #endif
 static SceUID sStallLoaderTid = 0;       // thread that runs the chunk handlers
 static radTime64 sStallYieldedUs = 0;    // time that thread has spent parked in SwitchTask()
@@ -218,7 +218,7 @@ tLoadStatus  tP3DFileHandler::Load(tFile* file, tEntityStore* store)
             const radTime64 stallWall = radTimeGetMicroseconds64() - stallStart;
             const radTime64 stallYielded = sStallYieldedUs - stallYield0;
             const radTime64 stallWork = stallWall > stallYielded ? stallWall - stallYielded : 0;
-            if( stallWork >= P3D_STALL_LOG_THRESHOLD_US )
+            if( stallWork >= P3D_STALL_LOG_THRESHOLD_US && !tFileFTT::IsOnLoadingScreen() )
             {
                 // ChunkTypeName() only exists with P3D_TRACK_LOAD_STATS, so log the numeric id
                 rReleasePrintf( "[stall] chunk 0x%x in %s: %u ms of work, %u ms yielded\n",

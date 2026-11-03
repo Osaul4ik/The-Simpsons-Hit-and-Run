@@ -1486,7 +1486,6 @@ END_PROFILE( "Delete Section" );
 
          HeapMgr()->PushHeap( GMA_LEVEL_OTHER );
 BEGIN_PROFILE( "Cleanup" );
-		rReleasePrintf("LoadList Dump: %s Num: %d\n", mLoadLists[i]->mGiveItAFuckinName.GetText(), i );
          //mLoadLists[i]->ClearAll();
 	     //mLoadLists[i]->AllocateAll(mnLoadListRefs);
          mLoadLists[i]->ClearAllUse();
@@ -1587,12 +1586,9 @@ bool WorldRenderLayer::DoPreDynaLoad(tName& irGiveItAFuckinName)//tUID iUID)
    {
       // mLoadLists has a fixed capacity; AddUse() does not check it in a release build
       rAssert( mLoadLists.mUseSize < mLoadLists.mSize );
-      rReleasePrintf("*******************Loading*****%s****\n", irGiveItAFuckinName.GetText());
       mLoadLists.AddUse(1);
       mCurLoadUID    = irGiveItAFuckinName.GetUID(); 
-	  rReleasePrintf("CurLoadIndex was %d\n", mCurLoadIndex );
       mCurLoadIndex  = mLoadLists.mUseSize-1; 
-	  rReleasePrintf("CurLoadIndex is %d\n", mCurLoadIndex );
       mDynaLoadState = msLoad;
       HeapMgr()->PushHeap( GMA_LEVEL_OTHER );
       mLoadLists[mCurLoadIndex]->mGiveItAFuckinName= irGiveItAFuckinName;

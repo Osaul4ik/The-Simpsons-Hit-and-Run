@@ -46,6 +46,7 @@ public:
     static void SetLoaderThread(void);          // called by the loader
     static bool IsLoaderThread(void);
     static void YieldIfDueOnLoader(void);       // for long work that does not read the file
+    static bool IsOnLoadingScreen();
     static void WaitForJob(const struct vitaJob* job);  // loader only: the game runs meanwhile
 
     // Vita only (no-op elsewhere). Called by the loader thread between top-level chunks:
