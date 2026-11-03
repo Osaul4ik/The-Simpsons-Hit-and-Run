@@ -525,21 +525,10 @@ float gxmDisplay::EndTiming()
     return (float)SDL_GetTicks() - beginTime;
 }
 
-// How many vblanks of the 60 Hz screen this frame stays on it. 42 fps is not a whole number of
-// vblanks: 5 frames per 7 vblanks (42.8 fps), spread as evenly as they go: 1, 2, 1, 2, 1.
+// How many vblanks of the 60 Hz screen this frame stays on it.
 static unsigned VblanksForNextFrame()
 {
-    static unsigned remainder = 0;
-    if(g_gxmFrameRate >= 60)
-        return 1;
-    if(g_gxmFrameRate >= 42)
-    {
-        remainder += 7;
-        const unsigned vblanks = remainder / 5;
-        remainder %= 5;
-        return vblanks;
-    }
-    return 2;
+    return g_gxmFrameRate >= 60 ? 1 : 2;
 }
 
 // The main loop asks at the start of a frame, because the time the game simulates has to match how

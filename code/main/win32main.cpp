@@ -73,7 +73,7 @@ static void ProcessCommandLineArgumentsFromFile();
 //=============================================================================
 // Runtime settings (Vita). Read from ux0:data/simpsons/vita.cfg, one "key=value"
 // per line, so they can be tuned without rebuilding:
-//     fps=30            30 (default), 42 or 60; also chosen in the game's Options menu,
+//     fps=30            30 (default) or 60; also chosen in the game's Options menu,
 //                       which rewrites this line
 //     zonecache=8       max zones kept resident after leaving them (0 = off)
 //     zonefade=600      milliseconds over which what a zone adds fades in, 0 = it just appears
@@ -101,7 +101,7 @@ static void ProcessCommandLineArgumentsFromFile();
 #define RAD_VITA_ZONE_CACHE_MAX_ZONES 8
 #endif
 #ifndef RAD_VITA_FRAME_RATE
-#define RAD_VITA_FRAME_RATE 30            // 30, 42 or 60
+#define RAD_VITA_FRAME_RATE 30            // 30 or 60
 #endif
 int g_vitaZoneCacheMaxZones = RAD_VITA_ZONE_CACHE_MAX_ZONES;   // read by RenderManager
 int g_gxmFrameRate          = RAD_VITA_FRAME_RATE;             // read by gxmDisplay::displayCallback
@@ -209,7 +209,7 @@ int VitaGetFrameRate()
 
 void VitaSetFrameRate( int fps )
 {
-    g_gxmFrameRate = ( fps >= 60 ) ? 60 : ( fps >= 42 ) ? 42 : 30;
+    g_gxmFrameRate = ( fps >= 60 ) ? 60 : 30;
 }
 
 // Writes the current frame rate to vita.cfg, keeping every other line of the file.
