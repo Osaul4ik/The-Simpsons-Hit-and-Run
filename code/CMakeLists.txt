@@ -572,6 +572,14 @@ if(VITA)
 		# linker sees them in the wrong order, so append them after everything else.
 		set(CMAKE_CXX_STANDARD_LIBRARIES "${CMAKE_CXX_STANDARD_LIBRARIES} -lvitashark -lSceShaccCgExt -lSceShaccCg_stub -ltaihen_stub -lSceLibKernel_stub")
 	endif()
+	# vita-elf-create appends the SCE module data (~4.6 KB) right after the text segment and fails with
+	# "Cannot allocate N bytes for SCE data at end of segment 0; segment 1 overlaps" when the data
+	# segment starts closer than that. The vita linker script uses max-page-size = common-page-size = 64 KB,
+	# so the data segment is placed at the next 64 KB boundary after the text end, and the gap is random
+	# (it depends on the exact code size). With a small common-page-size ld keeps a gap of at least
+	# max-page-size instead (vita-elf-create clamps p_align to 0x10 anyway).
+	set_property(TARGET ${PROJECT_NAME} APPEND_STRING PROPERTY LINK_FLAGS " -Wl,-z,common-page-size=0x10")
+
 	target_link_libraries(${PROJECT_NAME}
 		SceLibKernel_stub
 		ScePvf_stub
