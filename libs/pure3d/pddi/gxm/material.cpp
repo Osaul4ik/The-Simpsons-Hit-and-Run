@@ -368,7 +368,7 @@ void gxmMat::SetDevPass(unsigned pass)
         SelectFragmentShader(contextWriteMask);
     }
 
-    context->BindFragmentProgram(shader);
+    sceGxmSetFragmentProgram(gxm, shader);
 
     if(texEnv[i].texture)
     {
@@ -404,12 +404,12 @@ void gxmMat::PreRender()
         if(appliedNoSpecular != (context->GetVertexVariant(&texEnv[i]) != gxmContext::VARIANT_FULL))
         {
             SelectProgram();
-            context->BindFragmentProgram(shader);
+            sceGxmSetFragmentProgram(context->GetDisplay()->GetGXMContext(), shader);
         }
         else if(contextWriteMask != appliedContextWriteMask || appliedFadeBlend != (g_gxmFadeAlpha < 255))
         {
             SelectFragmentShader(contextWriteMask);
-            context->BindFragmentProgram(shader);
+            sceGxmSetFragmentProgram(context->GetDisplay()->GetGXMContext(), shader);
         }
 
         context->SetTextureEnvironment(&texEnv[i], program);

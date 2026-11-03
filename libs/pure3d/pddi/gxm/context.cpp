@@ -140,8 +140,6 @@ gxmContext::gxmContext(gxmDevice* dev, gxmDisplay* disp) : pddiBaseContext((pddi
     device = dev;
     display = disp;
     context = display->GetGXMContext();
-    lastCullMode = -1;
-    lastFragmentProgram = NULL;
     vertexShader = nullptr;
     uniformShadow.valid = false;
     uniformUploads = uniformReuses = 0;
@@ -324,8 +322,6 @@ void gxmContext::BeginFrame()
     ));
     inScene = true;
     lastPolygonMode = -1;
-    lastCullMode = -1;
-    lastFragmentProgram = NULL;
     InvalidateUniformShadow();          // the uniform ring starts over with every scene
 
     if(display->HasReset())
@@ -1210,13 +1206,13 @@ SceGxmCullMode cullModeTable[3] =
 // shadow volume passes select with SetCullMode() was overridden by every material change.
 void gxmContext::EnableCulling(bool enable)
 {
-    ApplyCullMode(enable ? cullModeTable[state.renderState->cullMode] : SCE_GXM_CULL_NONE);
+    sceGxmSetCullMode(context, enable ? cullModeTable[state.renderState->cullMode] : SCE_GXM_CULL_NONE);
 }
 
 void gxmContext::SetCullMode(pddiCullMode mode)
 {
     pddiBaseContext::SetCullMode(mode);
-    ApplyCullMode(cullModeTable[mode]);
+    sceGxmSetCullMode(context, cullModeTable[mode]);
 }
 
 // z-buffer control

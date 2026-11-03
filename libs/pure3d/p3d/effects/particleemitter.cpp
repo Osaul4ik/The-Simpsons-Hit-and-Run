@@ -877,9 +877,6 @@ void tSpriteEmitter::Display()
         }
 #endif
 
-#ifdef VITA_PARTICLE_BUDGET
-        float cachedSpin = FLT_MAX, cachedX = 0.0f, cachedY = 0.0f;
-#endif
         for (int i = 0; i < numLiveParticles; i++)
         {                                              
             tSpriteParticle* current = (tSpriteParticle*)liveParticles[i];
@@ -922,18 +919,12 @@ void tSpriteEmitter::Display()
                 }
             }
 #define PARTICLE_COLOUR particleColour
-            // Most particles of an emitter have the same spin.
-            if( current->spin != cachedSpin )
-            {
-                cachedSpin = current->spin;
-                rmt::SinCos( cachedSpin + rmt::PI_BY4, &cachedY, &cachedX );
-            }
-            float x = cachedX, y = cachedY;
 #else
 #define PARTICLE_COLOUR current->colour
+#endif
+
             float x, y;
             rmt::SinCos(current->spin + rmt::PI_BY4, &y, &x);
-#endif
 
             x *= current->size;
             y *= current->size;
@@ -944,25 +935,6 @@ void tSpriteEmitter::Display()
             currPos.y = transform.m[0][1]*temp.x + transform.m[1][1]*temp.y + transform.m[2][1]*temp.z + transform.m[3][1];
             currPos.z = transform.m[0][2]*temp.x + transform.m[1][2]*temp.y + transform.m[2][2]*temp.z + transform.m[3][2];
 
-#ifdef VITA_PARTICLE_BUDGET
-            {
-                // One call per vertex instead of three: there can be a lot of these in smoke.
-                pddiVector p;
-                pddiVector2 uv;
-                uv.u = texFrameCoords[current->texFrame+1]; uv.v = 1.0f; p.x = currPos.x+x; p.y = currPos.y+y; p.z = currPos.z;
-                stream->Vertex( &p, particleColour, &uv );
-                uv.u = texFrameCoords[current->texFrame]; uv.v = 0.0f; p.x = currPos.x-x; p.y = currPos.y-y; p.z = currPos.z;
-                stream->Vertex( &p, particleColour, &uv );
-                uv.u = texFrameCoords[current->texFrame]; uv.v = 1.0f; p.x = currPos.x-y; p.y = currPos.y+x; p.z = currPos.z;
-                stream->Vertex( &p, particleColour, &uv );
-                uv.u = texFrameCoords[current->texFrame+1]; uv.v = 1.0f; p.x = currPos.x+x; p.y = currPos.y+y; p.z = currPos.z;
-                stream->Vertex( &p, particleColour, &uv );
-                uv.u = texFrameCoords[current->texFrame+1]; uv.v = 0.0f; p.x = currPos.x+y; p.y = currPos.y-x; p.z = currPos.z;
-                stream->Vertex( &p, particleColour, &uv );
-                uv.u = texFrameCoords[current->texFrame]; uv.v = 0.0f; p.x = currPos.x-x; p.y = currPos.y-y; p.z = currPos.z;
-                stream->Vertex( &p, particleColour, &uv );
-            }
-#else
             stream->Colour(PARTICLE_COLOUR);
             stream->UV(texFrameCoords[current->texFrame+1], 1.0f);
             stream->Coord(currPos.x+x, currPos.y+y, currPos.z);
@@ -986,7 +958,6 @@ void tSpriteEmitter::Display()
             stream->Colour(PARTICLE_COLOUR);
             stream->UV(texFrameCoords[current->texFrame], 0.0f);
             stream->Coord(currPos.x-x, currPos.y-y, currPos.z);
-#endif
         }
         p3d::pddi->EndPrims(stream);
 
