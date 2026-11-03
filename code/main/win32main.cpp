@@ -79,6 +79,7 @@ static void ProcessCommandLineArgumentsFromFile();
 // Missing file or key = compile-time default.
 //=============================================================================
 #ifdef RAD_VITA
+#include <psp2/power.h>
 #ifndef RAD_VITA_ZONE_CACHE_MAX_ZONES
 #define RAD_VITA_ZONE_CACHE_MAX_ZONES 6
 #endif
@@ -90,6 +91,18 @@ int g_gxmVblankInterval     = RAD_VITA_VBLANK_INTERVAL;        // read by gxmDis
 int g_gxmTrilinear          = 1;                               // read by gxmMat::SetDevPass
 int g_gxmFastShaders        = 1;                               // read by gxmContext::LoadShaderVariants
 int g_gxmHardwareSkinning   = 1;                               // read by gxmContext::LoadShaderVariants
+
+// The game always runs at these clocks, whatever was set before it started.
+#define RAD_VITA_CPU_MHZ 333
+#define RAD_VITA_GPU_MHZ 166
+
+static void SetVitaClocks()
+{
+    const int cpu = scePowerSetArmClockFrequency( RAD_VITA_CPU_MHZ );
+    const int gpu = scePowerSetGpuClockFrequency( RAD_VITA_GPU_MHZ );
+    rReleasePrintf( "[boot] clocks: CPU %d MHz (0x%08x), GPU %d MHz (0x%08x)\n",
+                    scePowerGetArmClockFrequency(), cpu, scePowerGetGpuClockFrequency(), gpu );
+}
 
 static void LoadVitaConfig()
 {
@@ -522,6 +535,7 @@ extern "C" int main( int argc, char *argv[] )
 #ifdef RAD_VITA
 	chdir( "ux0:data/simpsons" );
     LoadVitaConfig();
+    SetVitaClocks();
 #ifdef RAD_LOG
     s_pLogFile = fopen( "ux0:data/simpsons/log.txt", "w" );
     rReleasePrintf( "[boot] newlib heap requested: %d MB\n", RAD_VITA_HEAP_MB );

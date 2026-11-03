@@ -1063,7 +1063,10 @@ static gxmProgram* MakeProgram(SceGxmShaderPatcher* patcher, gxmShaderId id)
     unsigned size = 0;
     void* gxp = gxmShaderLoad(id, &size);
     if(gxp == NULL)
+    {
+        rReleasePrintf("[gxm] shader variant %d is not available\n", (int)id);
         return NULL;
+    }
     gxmProgram* program = new gxmProgram(patcher, gxp, size);
     program->AddRef();
     gxmShaderBuildFree(gxp);
@@ -1079,6 +1082,7 @@ void gxmContext::LoadShaderVariants()
     }
 
     // All of a set or none of it: a vertex variant is useless without its fragment programs.
+    rReleasePrintf("[gxm] loading shader variants\n");
     gxmProgram* diffuse = MakeProgram(shaderPatcher, GXM_SHADER_V_DIFFUSE);
     gxmProgram* unlit = MakeProgram(shaderPatcher, GXM_SHADER_V_UNLIT);
     colorNoSpecProgram = MakeProgram(shaderPatcher, GXM_SHADER_F_COLOR_NOSPEC);

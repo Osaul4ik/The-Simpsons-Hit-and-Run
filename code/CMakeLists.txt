@@ -582,6 +582,7 @@ if(VITA)
 	endif()
 	target_link_libraries(${PROJECT_NAME}
 		SceLibKernel_stub
+		ScePower_stub
 		ScePvf_stub
 		mathneon
 		SceAudio_stub

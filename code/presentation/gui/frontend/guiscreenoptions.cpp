@@ -53,6 +53,23 @@ void VitaSaveFrameRate();
 //===========================================================================
 
 const unsigned int NUM_CHEAT_DISPLAY_LINES = 16;
+
+#ifdef RAD_VITA
+// distance between two rows of the menu, in Scrooby coordinates (0 if the page lacks the items)
+static int RowSpacing( Scrooby::Group* menu )
+{
+    Scrooby::Text* first = menu->GetText( "Controller" );
+    Scrooby::Text* second = menu->GetText( "Sound" );
+    if( first == NULL || second == NULL )
+    {
+        return 0;
+    }
+    int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+    first->GetOriginPosition( x0, y0 );
+    second->GetOriginPosition( x1, y1 );
+    return y1 - y0;
+}
+#endif
 const int PROGRESSIVE_MODE_TEST_TIME = 5000; // in msec
 
 //===========================================================================
@@ -126,34 +143,33 @@ MEMTRACK_PUSH_GROUP( "CGUIScreenOptions" );
 #endif
 
 #ifdef RAD_VITA
-    // The PS2 "display mode" item (label + value + arrows) is the frame rate choice here.
-    // The Vita frontend data decides whether its value text has room for two choices;
-    // without one, the label itself shows the value and the item toggles on accept/left/right.
-    Scrooby::Text* frameRateValue = pGroup->GetText( "DisplayMode_Value" );
-    if( frameRateValue != NULL && frameRateValue->GetNumOfStrings() >= 2 )
+    // The PS2 "display mode" texts are smaller than the other items and their value sits a row
+    // lower, so they are hidden. The frame rate is a new text in the style of the other items,
+    // at the next row, showing its value and toggling on accept/left/right.
+    Scrooby::Text* frameRateValue = NULL;
+    const int rowSpacing = RowSpacing( pGroup );
+    m_frameRateLabel = pGroup->AddTextLike( pGroup->GetText( "Controller" ), "FrameRate", 0, rowSpacing * 4 );
+    if( m_frameRateLabel == NULL )
     {
-        pGroup->GetText( "DisplayMode" )->SetString( 0, "FRAME RATE" );
-        frameRateValue->SetString( 0, "30 FPS" );
-        frameRateValue->SetString( 1, "60 FPS" );
+        m_frameRateLabel = pGroup->GetText( "DisplayMode" );
     }
     else
     {
-        if( frameRateValue != NULL )
-        {
-            frameRateValue->SetVisible( false );
-        }
-        frameRateValue = NULL;
-        m_frameRateLabel = pGroup->GetText( "DisplayMode" );
-        if( pGroup->GetSprite( "DisplayMode_ArrowL" ) != NULL )
-        {
-            pGroup->GetSprite( "DisplayMode_ArrowL" )->SetVisible( false );
-        }
-        if( pGroup->GetSprite( "DisplayMode_ArrowR" ) != NULL )
-        {
-            pGroup->GetSprite( "DisplayMode_ArrowR" )->SetVisible( false );
-        }
+        pGroup->GetText( "DisplayMode" )->SetVisible( false );
     }
-    m_pMenu->AddMenuItem( pGroup->GetText( "DisplayMode" ),
+    if( pGroup->GetText( "DisplayMode_Value" ) != NULL )
+    {
+        pGroup->GetText( "DisplayMode_Value" )->SetVisible( false );
+    }
+    if( pGroup->GetSprite( "DisplayMode_ArrowL" ) != NULL )
+    {
+        pGroup->GetSprite( "DisplayMode_ArrowL" )->SetVisible( false );
+    }
+    if( pGroup->GetSprite( "DisplayMode_ArrowR" ) != NULL )
+    {
+        pGroup->GetSprite( "DisplayMode_ArrowR" )->SetVisible( false );
+    }
+    m_pMenu->AddMenuItem( m_frameRateLabel,
                           frameRateValue,
 #else
     m_pMenu->AddMenuItem( pGroup->GetText( "DisplayMode" ),
@@ -170,28 +186,18 @@ MEMTRACK_PUSH_GROUP( "CGUIScreenOptions" );
 #endif
 
 #ifdef RAD_VITA
-    // Two more rows the frontend data does not have: new texts in the style of the menu items,
-    // continuing the rows' spacing, and the whole menu moved by one row to stay centered.
+    // Two more rows the frontend data does not have, continuing the rows' spacing, and the whole
+    // menu moved by one row to stay centered.
     {
         Scrooby::Text* first = pGroup->GetText( "Controller" );
-        Scrooby::Text* second = pGroup->GetText( "Sound" );
-        if( first != NULL && second != NULL )
+        if( first != NULL && rowSpacing != 0 )
         {
-            int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
-            first->GetOriginPosition( x0, y0 );
-            second->GetOriginPosition( x1, y1 );
-            const int spacing = y1 - y0;
-
-            // Controller, Sound, ViewMovies, ViewCredits, DisplayMode: the new ones are rows 6 and 7
-            m_compileLabel = pGroup->AddTextLike( first, "CompileShaders", 0, spacing * 5 );
-            m_shaderStatus = pGroup->AddTextLike( first, "ShaderStatus", 0, spacing * 6 );
+            // Controller, Sound, ViewMovies, ViewCredits, frame rate: the new ones are rows 6 and 7
+            m_compileLabel = pGroup->AddTextLike( first, "CompileShaders", 0, rowSpacing * 5 );
+            m_shaderStatus = pGroup->AddTextLike( first, "ShaderStatus", 0, rowSpacing * 6 );
         }
         if( m_compileLabel != NULL && m_shaderStatus != NULL )
         {
-            int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
-            first->GetOriginPosition( x0, y0 );
-            second->GetOriginPosition( x1, y1 );
-
             m_pMenu->AddMenuItem( m_compileLabel );
 
             // The status can be long: a wider box around the same center, and a bit smaller.
@@ -205,7 +211,7 @@ MEMTRACK_PUSH_GROUP( "CGUIScreenOptions" );
             m_shaderStatus->ScaleAboutCenter( 0.8f );
 
             pGroup->ResetTransformation();
-            pGroup->Translate( 0, -( y1 - y0 ) );
+            pGroup->Translate( 0, -rowSpacing );
 
             this->UpdateShaderStatus();
         }
@@ -706,7 +712,7 @@ void CGuiScreenOptions::UpdateFrameRateLabel()
 {
     if( m_frameRateLabel != NULL )
     {
-        m_frameRateLabel->SetString( 0, VitaGetFrameRate() >= 60 ? "FRAME RATE: 60 FPS" : "FRAME RATE: 30 FPS" );
+        m_frameRateLabel->SetString( 0, VitaGetFrameRate() >= 60 ? "FRAME RATE 60 FPS" : "FRAME RATE 30 FPS" );
     }
 }
 

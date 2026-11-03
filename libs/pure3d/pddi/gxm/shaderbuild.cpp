@@ -196,10 +196,19 @@ static void* LoadFile(const char* path, unsigned* size)
     void* data = length > 0 ? malloc(length) : NULL;
     const bool read = data && fread(data, 1, length, f) == (size_t)length;
     fclose(f);
-    // an interrupted write or a damaged file counts as not compiled
-    if(!read || sceGxmProgramCheck((const SceGxmProgram*)data) != SCE_OK ||
-       sceGxmProgramGetSize((const SceGxmProgram*)data) != (unsigned)length)
+    // An interrupted write or a damaged file counts as not compiled. The compiler's output can be
+    // longer than the size in the program's header, so only a shorter file is an error.
+    int check = -1;
+    unsigned programSize = 0;
+    if(read)
     {
+        check = sceGxmProgramCheck((const SceGxmProgram*)data);
+        if(check == SCE_OK)
+            programSize = sceGxmProgramGetSize((const SceGxmProgram*)data);
+    }
+    if(check != SCE_OK || programSize > (unsigned)length)
+    {
+        rReleasePrintf("[shader] %s rejected: length=%ld check=0x%08x program size=%u\n", path, length, check, programSize);
         free(data);
         return NULL;
     }
