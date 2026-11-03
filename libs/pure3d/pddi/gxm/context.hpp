@@ -215,6 +215,28 @@ protected:
     unsigned uniformUploads, uniformReuses;     // statistics
     void InvalidateUniformShadow() { uniformShadow.valid = false; }
 
+    // These calls are not free and most draws repeat the last value.
+    int lastCullMode;
+    SceGxmFragmentProgram* lastFragmentProgram;
+    void ApplyCullMode(SceGxmCullMode mode)
+    {
+        if(lastCullMode != (int)mode)
+        {
+            lastCullMode = (int)mode;
+            sceGxmSetCullMode(context, mode);
+        }
+    }
+public:
+    void BindFragmentProgram(SceGxmFragmentProgram* program)
+    {
+        if(lastFragmentProgram != program)
+        {
+            lastFragmentProgram = program;
+            sceGxmSetFragmentProgram(context, program);
+        }
+    }
+protected:
+
     SceUID patcherVertexUsseUid;
     SceUID patcherFragmentUsseUid;
     void* patcherBuffer;

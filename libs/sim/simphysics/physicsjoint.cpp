@@ -490,6 +490,14 @@ void PhysicsJoint::JointAngle(bool parentRelative, float& angle)
         Vector parentAxis;
         mParentObject->JointAxis(mParentIndex, parentAxis, false);
         angle = mAxis.DotProduct(parentAxis);
+#ifdef RAD_VITA
+        // acos(0.999) is about 0.045 rad, already inside the dead zone below: no acos for that zero.
+        if(angle >= 0.999f && MIN_ANGLE_ACCURACY >= 0.1f)
+        {
+            angle = 0;
+            return;
+        }
+#endif
         angle = ACosSafe(angle);
         
         if (Fabs(angle) < MIN_ANGLE_ACCURACY)

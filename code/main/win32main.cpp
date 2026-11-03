@@ -77,7 +77,7 @@ static void ProcessCommandLineArgumentsFromFile();
 //                       which rewrites this line
 //     zonecache=8       max zones kept resident after leaving them (0 = off)
 //     zonefade=600      milliseconds over which what a zone adds fades in, 0 = it just appears
-//     smalldist=100     metres from which small things (hydrants, ...) are not drawn; the original
+//     smalldist=80      metres from which small things (hydrants, ...) are not drawn; the original
 //                       game has 63, higher costs more draw calls
 //     framepace=1       0 = the game simulates the time the clock shows instead of the time the
 //                       frames stay on screen

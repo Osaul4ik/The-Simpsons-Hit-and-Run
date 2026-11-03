@@ -739,25 +739,10 @@ void ParticleManager::Add( const ParticleAttributes& attr, const rmt::Vector& po
 //
 //==============================================================================
 
-#ifdef RAD_VITA
-int VitaGetFrameRate();     // code/main/win32main.cpp
-#endif
-
 void ParticleManager::Update( unsigned int deltaTime )
 {
 
 	float fDeltaTime = static_cast< float >( deltaTime );
-
-#ifdef RAD_VITA
-    // At 60 fps every system moves on every other frame, half of them on each, by the time of both.
-    // Smoke does not show it, and the frame gets its update cost back.
-    static unsigned int s_frame = 0;
-    static float s_lastDeltaTime = 0.0f;
-    s_frame++;
-    const bool everyOther = VitaGetFrameRate() >= 60;
-    const float twoFrames = fDeltaTime + s_lastDeltaTime;
-    s_lastDeltaTime = fDeltaTime;
-#endif
 
     // for each active particle system type
     for (unsigned int i = 0 ; i < mActiveSystems.Size() ; ++i)
@@ -768,17 +753,6 @@ void ParticleManager::Update( unsigned int deltaTime )
             if ( mActiveSystems[i][j]->IsActive() )
             {
                 // Advance animation and/or throw up new particles.
-#ifdef RAD_VITA
-                if( everyOther )
-                {
-                    if( ( ( i + j + s_frame ) & 1 ) == 0 )
-                    {
-                        continue;
-                    }
-                    mActiveSystems[i][j]->Update( twoFrames );
-                }
-                else
-#endif
                 mActiveSystems[i][j]->Update( fDeltaTime );
 
                 if ( mActiveSystems[i][j]->IsLocked() )    
