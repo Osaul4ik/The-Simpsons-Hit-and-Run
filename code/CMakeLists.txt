@@ -538,6 +538,14 @@ if(SRR2_REGION STREQUAL "PAL")
 	)
 endif()
 
+if(VITA)
+	# See code/main/vitatextpad.cpp: moves the end of the text segment away from a 64 KB boundary
+	# (vita-elf-create needs 4624 free bytes between segment 0 and segment 1).
+	set(SRR2_VITA_TEXT_PAD 8192 CACHE STRING "Size in bytes of the padding array at the end of the Vita text segment")
+	list(APPEND SRR2_SOURCES "main/vitatextpad.cpp")
+	set_source_files_properties("main/vitatextpad.cpp" PROPERTIES COMPILE_DEFINITIONS SRR2_VITA_TEXT_PAD=${SRR2_VITA_TEXT_PAD})
+endif()
+
 add_executable(${PROJECT_NAME} ${SRR2_SOURCES})
 target_link_libraries(${PROJECT_NAME}
 	${SDL_LIBRARY}
@@ -572,14 +580,6 @@ if(VITA)
 		# linker sees them in the wrong order, so append them after everything else.
 		set(CMAKE_CXX_STANDARD_LIBRARIES "${CMAKE_CXX_STANDARD_LIBRARIES} -lvitashark -lSceShaccCgExt -lSceShaccCg_stub -ltaihen_stub -lSceLibKernel_stub")
 	endif()
-	# vita-elf-create appends the SCE module data (~4.6 KB) right after the text segment and fails with
-	# "Cannot allocate N bytes for SCE data at end of segment 0; segment 1 overlaps" when the data
-	# segment starts closer than that. The vita linker script uses max-page-size = common-page-size = 64 KB,
-	# so the data segment is placed at the next 64 KB boundary after the text end, and the gap is random
-	# (it depends on the exact code size). With a small common-page-size ld keeps a gap of at least
-	# max-page-size instead (vita-elf-create clamps p_align to 0x10 anyway).
-	set_property(TARGET ${PROJECT_NAME} APPEND_STRING PROPERTY LINK_FLAGS " -Wl,-z,common-page-size=0x10")
-
 	target_link_libraries(${PROJECT_NAME}
 		SceLibKernel_stub
 		ScePvf_stub

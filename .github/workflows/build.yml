@@ -104,15 +104,22 @@ jobs:
 
       - name: Build
         run: |
-          cmake --build build --parallel "$(nproc)" || {
-            rc=$?
-            E=build/code/SRR2
-            echo "::error title=LOAD segments::$(arm-vita-eabi-readelf -lW $E | grep -E 'LOAD|TLS|Type' | sed 's/$/%0A/' | tr -d '\n')"
-            echo "::error title=Sections::$(arm-vita-eabi-readelf -SW $E | sed 's/$/%0A/' | tr -d '\n')"
-            echo "::error title=Link flags::$(grep -rh 'common-page-size' build/code/CMakeFiles/SRR2.dir/link.txt | head -c 600)"
-            echo "::error title=ld::$(arm-vita-eabi-ld --version | head -1); $(vita-elf-create 2>&1 | head -2 | tr '\n' ' ')"
-            exit $rc
-          }
+          # vita-elf-create fails when the text segment ends within ~4.6 KB below a 64 KB boundary
+          # (see code/main/vitatextpad.cpp). Changing the pad size moves the end of the segment;
+          # only one object is recompiled and the executable is relinked.
+          ok=0
+          for pad in 8192 24576 40960 57344; do
+            echo "::group::Build with SRR2_VITA_TEXT_PAD=$pad"
+            cmake -S . -B build -DSRR2_VITA_TEXT_PAD=$pad
+            if cmake --build build --parallel "$(nproc)"; then ok=1; echo '::endgroup::'; break; fi
+            echo '::endgroup::'
+            echo "::warning::Build failed with SRR2_VITA_TEXT_PAD=$pad, retrying with another pad size"
+          done
+          if [ "$ok" != 1 ]; then
+            echo "::error title=LOAD segments::$(arm-vita-eabi-readelf -lW build/code/SRR2 | grep -E 'LOAD|Type' | sed 's/$/%0A/' | tr -d '\n')"
+            exit 2
+          fi
+
 
       # Guard against silently falling back to the desktop-GL-over-vitaGL backend.
       # vitaGL symbols (vglInit) are NOT a valid signal: vitasdk's SDL2 links vitaGL itself.
