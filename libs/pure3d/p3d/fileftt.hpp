@@ -42,6 +42,12 @@ public:
     // frame rate.
     static void SetLoadingMode(bool loading);
 
+    // The loader takes turns with the main thread. Between its turns the game runs.
+    static void SetLoaderThread(void);          // called by the loader
+    static bool IsLoaderThread(void);
+    static void YieldIfDueOnLoader(void);       // for long work that does not read the file
+    static void WaitForJob(const struct vitaJob* job);  // loader only: the game runs meanwhile
+
     // Vita only (no-op elsewhere). Called by the loader thread between top-level chunks:
     // hands control back to the main thread if the loader's slice has expired. Chunk handlers
     // only yielded while reading data, so a chunk that is mostly processing (texture and

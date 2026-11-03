@@ -7,6 +7,7 @@
 // 15-June-98, NV
 // requires libpng.lib, and zlib.dll
 
+#include <p3d/fileftt.hpp>
 #include <p3d/png.hpp>
 #include <p3d/image.hpp>
 #include <p3d/file.hpp>
@@ -191,6 +192,7 @@ void LoadPNG4(png_structp pPNG, png_infop pngInfo, tImageHandler::Builder* build
     
     for(int y = 0; y < height; y++)
     {
+        tFileFTT::YieldIfDueOnLoader();     // a big image must not hold up the game for a whole turn
         png_read_row(pPNG, (unsigned char*)srcRow, (unsigned char*)NULL);
 
         // promote 4-bit palette indexes to 8-bit palette indexes
@@ -247,6 +249,7 @@ void LoadPNG8(png_structp pPNG, png_infop pngInfo, tImageHandler::Builder* build
 
     for(int y = 0; y < height; y++)
     {
+        tFileFTT::YieldIfDueOnLoader();     // a big image must not hold up the game for a whole turn
         png_read_row(pPNG, (unsigned char*)row, (unsigned char*)NULL);
         builder->ProcessScanline8((unsigned char*)row);
     }
@@ -270,6 +273,7 @@ void LoadPNG32(png_structp pPNG, png_infop pngInfo, tImageHandler::Builder* buil
     
     for(int y = 0; y < height; y++)
     {
+        tFileFTT::YieldIfDueOnLoader();     // a big image must not hold up the game for a whole turn
         png_read_row(pPNG, (unsigned char*)row, (unsigned char*)NULL);
 #ifdef RAD_GAMECUBE
         int a;

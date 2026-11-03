@@ -24,12 +24,10 @@
 #ifdef RAD_LOG
 #include <psp2/kernel/processmgr.h>
 extern "C" void vitaProfAdd(const char* name, unsigned microseconds);
-#define TEX_TIMER_START() const unsigned texTimerStart = sceKernelGetProcessTimeLow()
-#define TEX_TIMER_END(name) vitaProfAdd(name, sceKernelGetProcessTimeLow() - texTimerStart)
-#else
-#define TEX_TIMER_START()
-#define TEX_TIMER_END(name)
 #endif
+
+#include <p3d/fileftt.hpp>
+#include <p3d/vitajobs.hpp>
 
 // Palettized (4/8 bit) textures are stored natively as P8 with a 256 entry palette.
 // The palette words are 0xAARRGGBB like pddiColour. If red and blue come out swapped on
@@ -470,18 +468,33 @@ static void SwizzleLevel(int bytesPerPixel, uint8_t* dst, uint8_t* src, int w, i
     }
 }
 
-// Writes level 0 (always) and the generated levels >= firstLevel (and < mipCount) into the
-// swizzled texture. Levels are stored back to back, each w*h*bytes, largest first.
-// palette is only used for P8.
-void gxmTexture::UploadChain(const uint8_t* level0, const uint32_t* palette, int paletteEntries, int firstLevel)
+// Everything a mip chain upload needs. Run on a worker core while the loader hands the main thread
+// its frames back, so it only touches this data and allocates nothing (the game's heaps are not
+// safe to use from a thread other than the main and loader threads, which take turns).
+struct MipChainJob
 {
-    const int bpp8 = lock.depth / 8;
-    const bool p8 = (lock.format == PDDI_PIXEL_PAL8);
-    int w = xSize, h = ySize;
+    const uint8_t* level0;
+    const uint32_t* palette;
+    int paletteEntries;
+    int firstLevel;
+    uint8_t* bits;
+    uint8_t* scratch;       // room for all generated levels, or NULL
+    int xSize, ySize, mipCount, bpp8;
+    bool p8, hasAlpha;
+    int levelsDone;         // result
+    unsigned microseconds;  // result, for the log
+};
+
+static void RunMipChainJob(void* arg)
+{
+    MipChainJob& j = *(MipChainJob*)arg;
+#ifdef RAD_LOG
+    const unsigned started = sceKernelGetProcessTimeLow();
+#endif
+    int w = j.xSize, h = j.ySize;
     size_t offset = 0;
-    const uint8_t* cur = level0;
-    uint8_t* scratch = NULL;    // all generated levels, back to back: one allocation per texture
-    uint8_t* next = NULL;       // where the next generated level goes in it
+    const uint8_t* cur = j.level0;
+    uint8_t* next = j.scratch;
     bool anyAlpha = false;      // some texel is not fully opaque
     int levelsDone = 0;
 
@@ -489,45 +502,34 @@ void gxmTexture::UploadChain(const uint8_t* level0, const uint32_t* palette, int
     bool cutout = false;
     float coverage = 0.0f;
 #endif
-    if(hasAlpha && bpp8 == 4 && mipCount > 1 && firstLevel == 0)
+    if(j.hasAlpha && j.bpp8 == 4 && j.mipCount > 1 && j.firstLevel == 0)
     {
         uint32_t hist[256];
-        AlphaHistogram(level0, size_t(xSize) * ySize, hist);
-        anyAlpha = hist[255] != size_t(xSize) * ySize;
+        AlphaHistogram(j.level0, size_t(j.xSize) * j.ySize, hist);
+        anyAlpha = hist[255] != size_t(j.xSize) * j.ySize;
 #if RAD_GXM_MIP_ALPHA_COVERAGE
-        cutout = IsCutoutAlpha(hist, size_t(xSize) * ySize);
-        coverage = AlphaCoverage(hist, size_t(xSize) * ySize);
+        cutout = IsCutoutAlpha(hist, size_t(j.xSize) * j.ySize);
+        coverage = AlphaCoverage(hist, size_t(j.xSize) * j.ySize);
 #endif
     }
 
-    // Scratch memory for levels 1.. (only needed when there is something to generate).
-    if(mipCount > 1 && !(p8 && palette == NULL))
+    for(int l = 0; l < j.mipCount; l++)
     {
-        size_t scratchBytes = 0;
-        for(int l = 1; l < mipCount; l++)
-            scratchBytes += size_t(rmt::Max(xSize >> l, 1)) * rmt::Max(ySize >> l, 1) * bpp8;
-        scratch = (uint8_t*)radMemoryAllocAligned(radMemoryGetCurrentAllocator(), scratchBytes, 16);
-        next = scratch;
-    }
-
-    for(int l = 0; l < mipCount; l++)
-    {
-        if(l >= firstLevel)
+        if(l >= j.firstLevel)
         {
-            SwizzleLevel(bpp8, bits + offset, (uint8_t*)cur, w, h);
+            SwizzleLevel(j.bpp8, j.bits + offset, (uint8_t*)cur, w, h);
             levelsDone = l + 1;
         }
-        offset += size_t(w) * h * bpp8;
+        offset += size_t(w) * h * j.bpp8;
 
-        // P8 without a palette yet: base level only, the rest is built by BuildPaletteMips()
-        // Out of scratch memory: use the levels we have.
-        if(l + 1 >= mipCount || next == NULL)
+        // Out of scratch memory (or P8 without its palette yet): use the levels we have.
+        if(l + 1 >= j.mipCount || next == NULL)
             break;
 
         const int nw = rmt::Max(w >> 1, 1), nh = rmt::Max(h >> 1, 1);
-        if(p8)
-            DownsampleP8(cur, next, w, h, palette, paletteEntries);
-        else if(bpp8 == 2)
+        if(j.p8)
+            DownsampleP8(cur, next, w, h, j.palette, j.paletteEntries);
+        else if(j.bpp8 == 2)
             Downsample565(cur, next, w, h);
         else
         {
@@ -542,14 +544,73 @@ void gxmTexture::UploadChain(const uint8_t* level0, const uint32_t* palette, int
         }
 
         cur = next;
-        next += size_t(nw) * nh * bpp8;
+        next += size_t(nw) * nh * j.bpp8;
         w = nw;
         h = nh;
     }
 
-    if(scratch)
-        radMemoryFreeAligned(scratch);
+    j.levelsDone = levelsDone;
+#ifdef RAD_LOG
+    j.microseconds = sceKernelGetProcessTimeLow() - started;
+#endif
+}
 
+// Below this a job is not worth it: the loader would lose the rest of its turn for almost nothing.
+#ifndef RAD_GXM_TEXTURE_JOB_MIN_BYTES
+#define RAD_GXM_TEXTURE_JOB_MIN_BYTES ( 16 * 1024 )
+#endif
+
+// Runs a job on a worker core when called by the loader: the main thread keeps running meanwhile.
+// Anywhere else it runs right here, since only the loader can wait without stopping the game.
+static void RunTextureJob(vitaJobFunction function, void* arg, size_t bytes)
+{
+    vitaJob job;
+    if(bytes >= RAD_GXM_TEXTURE_JOB_MIN_BYTES && tFileFTT::IsLoaderThread() && vitaJobSubmit(&job, function, arg))
+        tFileFTT::WaitForJob(&job);
+    else
+        function(arg);
+}
+
+// Writes level 0 (always) and the generated levels >= firstLevel (and < mipCount) into the
+// swizzled texture. Levels are stored back to back, each w*h*bytes, largest first.
+// palette is only used for P8.
+void gxmTexture::UploadChain(const uint8_t* level0, const uint32_t* palette, int paletteEntries, int firstLevel)
+{
+    MipChainJob job;
+    job.level0 = level0;
+    job.palette = palette;
+    job.paletteEntries = paletteEntries;
+    job.firstLevel = firstLevel;
+    job.bits = bits;
+    job.scratch = NULL;
+    job.xSize = xSize;
+    job.ySize = ySize;
+    job.mipCount = mipCount;
+    job.bpp8 = lock.depth / 8;
+    job.p8 = (lock.format == PDDI_PIXEL_PAL8);
+    job.hasAlpha = hasAlpha;
+    job.levelsDone = 0;
+    job.microseconds = 0;
+
+    // Scratch memory for levels 1.. (only needed when there is something to generate).
+    if(mipCount > 1 && !(job.p8 && palette == NULL))
+    {
+        size_t scratchBytes = 0;
+        for(int l = 1; l < mipCount; l++)
+            scratchBytes += size_t(rmt::Max(xSize >> l, 1)) * rmt::Max(ySize >> l, 1) * job.bpp8;
+        job.scratch = (uint8_t*)radMemoryAllocAligned(radMemoryGetCurrentAllocator(), scratchBytes, 16);
+    }
+
+    RunTextureJob(RunMipChainJob, &job, size_t(xSize) * ySize * job.bpp8);
+
+    if(job.scratch)
+        radMemoryFreeAligned(job.scratch);
+
+#ifdef RAD_LOG
+    vitaProfAdd("Texture: swizzle+mips work", job.microseconds);
+#endif
+
+    int levelsDone = job.levelsDone;
     if(levelsDone < 1)
         levelsDone = 1;
     if(levelsDone != validMips)
@@ -558,6 +619,23 @@ void gxmTexture::UploadChain(const uint8_t* level0, const uint32_t* palette, int
         sampler.valid = false;
         CHK_GXM(sceGxmTextureSetMipmapCount(&texture, validMips));
     }
+}
+
+struct DxtSwizzleJob
+{
+    uint8_t* bits;
+    uint8_t* source;
+    uint32_t width, height;
+    bool blocks16;
+};
+
+static void RunDxtSwizzleJob(void* arg)
+{
+    DxtSwizzleJob& j = *(DxtSwizzleJob*)arg;
+    if(j.blocks16)
+        SwizzleTexData128Bpp(j.bits, j.source, 0, 0, j.width, j.height, j.width, rmt::Min(j.width, j.height));
+    else
+        SwizzleTexData64Bpp(j.bits, j.source, 0, 0, j.width, j.height, j.width, rmt::Min(j.width, j.height));
 }
 
 // P8: the mip chain needs the palette, which the loader supplies after Unlock(0).
@@ -938,8 +1016,6 @@ void gxmTexture::Unlock(int mipLevel)
     if(lockTemp == NULL)
         return;
 
-    TEX_TIMER_START();
-
     if(mipLevel == 0 && swizzled)
     {
         if(lock.format == PDDI_PIXEL_PAL8)
@@ -952,7 +1028,6 @@ void gxmTexture::Unlock(int mipLevel)
             lockTemp = NULL;
             if(nPalette > 0)
                 BuildPaletteMips();
-            TEX_TIMER_END("Texture: P8 swizzle+mips");
             return;
         }
         UploadChain((const uint8_t*)lockTemp, NULL, 0, 0);
@@ -961,15 +1036,12 @@ void gxmTexture::Unlock(int mipLevel)
     {
         uint32_t width = ceil(double(xSize) / 4);
         uint32_t height = ceil(double(ySize) / 4);
-        if(type == PDDI_TEXTYPE_DXT5)
-            SwizzleTexData128Bpp(bits, (uint8_t*)lockTemp, 0, 0, width, height, width, rmt::Min(width, height));
-        else
-            SwizzleTexData64Bpp(bits, (uint8_t*)lockTemp, 0, 0, width, height, width, rmt::Min(width, height));
+        DxtSwizzleJob job = { bits, (uint8_t*)lockTemp, width, height, type == PDDI_TEXTYPE_DXT5 };
+        RunTextureJob(RunDxtSwizzleJob, &job, size_t(width) * height * (job.blocks16 ? 16 : 8));
     }
 
     radMemoryFreeAligned(lockTemp);
     lockTemp = NULL;
-    TEX_TIMER_END("Texture: swizzle+mips");
 }
 
 void gxmTexture::ApplySamplerState(SceGxmTextureFilter mag, SceGxmTextureFilter min,
@@ -1061,11 +1133,7 @@ void gxmTexture::SetPalette(int nEntries, pddiColour* palette)
     nPalette = nEntries;
 
     // P8 mip levels are chosen from the palette colours, so build them now
-    {
-        TEX_TIMER_START();
-        BuildPaletteMips();
-        TEX_TIMER_END("Texture: P8 mips (palette)");
-    }
+    BuildPaletteMips();
 }
 
 int gxmTexture::GetPalette(pddiColour* palette)

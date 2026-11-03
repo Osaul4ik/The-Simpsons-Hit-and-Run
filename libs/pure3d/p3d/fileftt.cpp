@@ -25,6 +25,8 @@ static const int COMPRESSED_BLOCK_SIZE = 4096;
 #include <psp2/kernel/threadmgr.h>
 #endif
 
+#include <p3d/vitajobs.hpp>
+
 static radTime64 gLastTime = 0;
 #ifdef RAD_XBOX
 static unsigned gYieldTime = 2500;  // microseconds
@@ -44,6 +46,7 @@ static unsigned gYieldTime = 2500;  // microseconds
 #endif
 static unsigned gYieldTime = RAD_VITA_LOAD_YIELD_LOADING_US;  // microseconds
 static bool gSleepWhileWaiting = true;
+static int gLoaderThread = -1;
 #else
 static unsigned gYieldTime = 5200;  // microseconds
 #endif
@@ -93,6 +96,58 @@ void tFileFTT::YieldIfDue(void)
 {
 #ifdef RAD_VITA
     YieldIfSliceExpired();
+#endif
+}
+
+//--------------------------------------------------------------------------
+void tFileFTT::SetLoaderThread(void)
+{
+#ifdef RAD_VITA
+    gLoaderThread = sceKernelGetThreadId();
+#endif
+}
+
+//--------------------------------------------------------------------------
+bool tFileFTT::IsLoaderThread(void)
+{
+#ifdef RAD_VITA
+    return sceKernelGetThreadId() == gLoaderThread;
+#else
+    return false;
+#endif
+}
+
+//--------------------------------------------------------------------------
+void tFileFTT::YieldIfDueOnLoader(void)
+{
+#ifdef RAD_VITA
+    if( IsLoaderThread() )
+    {
+        YieldIfSliceExpired();
+    }
+#endif
+}
+
+//--------------------------------------------------------------------------
+void tFileFTT::WaitForJob(const vitaJob* job)
+{
+#ifdef RAD_VITA
+    // Same rules as waiting for the drive thread: on loading screens stay inside the slice, in
+    // the game give the main thread its frame right away.
+    while( !vitaJobIsDone( job ) )
+    {
+        if( gSleepWhileWaiting && ( radTimeGetMicroseconds64() - gLastTime ) < gYieldTime )
+        {
+            sceKernelDelayThread( RAD_VITA_LOAD_WAIT_SLEEP_US );
+        }
+        else
+        {
+            p3d::loadManager->SwitchTask();
+            gLastTime = radTimeGetMicroseconds64();
+        }
+    }
+#else
+    (void)job;
 #endif
 }
 

@@ -16,7 +16,7 @@ int g_vitaProfEnabled = 1;      // read from vita.cfg, code/main/win32main.cpp
 
 namespace
 {
-    enum { MAX_MARKS = 512, MAX_DEPTH = 32, REPORT_ROWS = 18 };
+    enum { MAX_MARKS = 512, MAX_DEPTH = 32, REPORT_ROWS = 36 };
 
     struct Mark
     {

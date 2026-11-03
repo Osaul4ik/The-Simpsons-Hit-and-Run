@@ -26,6 +26,7 @@ void LogProgress( const char* stage ) __attribute__((weak));
 #include <vector>
 
 #include <pddi/gxm/shaderbuild.hpp>
+#include <p3d/vitajobs.hpp>
 #include <pddi/pddiext.hpp>
 
 // Runtime switches, from vita.cfg ("fastshaders=0", "hwskin=0"; code/main/win32main.cpp)
@@ -189,6 +190,8 @@ gxmContext::gxmContext(gxmDevice* dev, gxmDisplay* disp) : pddiBaseContext((pddi
     textureProgram->AddRef();
     alphaTestProgram = new gxmProgram(shaderPatcher, p3d::openFile("app0:/shaders/alpha_cg.gxp", false));
     alphaTestProgram->AddRef();
+
+    vitaJobsStart();
 
     memset(vertexPrograms, 0, sizeof(vertexPrograms));
     vertexPrograms[0][VARIANT_FULL] = vertexProgram;

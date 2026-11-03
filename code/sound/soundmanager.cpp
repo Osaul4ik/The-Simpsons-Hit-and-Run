@@ -193,9 +193,16 @@ void SoundManager::Update()
         return;
     }
 
-    BEGIN_PROFILE( "Sound: music" );
-    m_musicPlayer->Service();
-    END_PROFILE( "Sound: music" );
+    // The music only needs servicing as often as the game does at 30 fps: it works from the time
+    // that has passed, and this costs up to 3 ms per call on the Vita.
+    static unsigned int s_lastMusicService = 0;
+    if( now - s_lastMusicService >= 30 )
+    {
+        s_lastMusicService = now;
+        BEGIN_PROFILE( "Sound: music" );
+        m_musicPlayer->Service();
+        END_PROFILE( "Sound: music" );
+    }
 
     rAssert( m_pSoundRenderMgr != NULL );
     BEGIN_PROFILE( "Sound: render" );
