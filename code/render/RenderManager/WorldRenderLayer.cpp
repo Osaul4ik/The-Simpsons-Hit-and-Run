@@ -333,6 +333,10 @@ void WorldRenderLayer::Render()
                 mpGuts[i]->Display();
             }
             END_PROFILE( "Render Guts" );
+#ifdef RAD_VITA
+            mpWorldScene->RenderAfterGuts();
+            GetSparkleManager()->Render( Sparkle::SRM_SortedOnly );
+#endif
             
             BEGIN_PROFILE( "Render Trigger Volume Tracker" );
             GetTriggerVolumeTracker()->Render();

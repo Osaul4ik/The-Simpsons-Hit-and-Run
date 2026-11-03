@@ -81,6 +81,9 @@ static const float STAR_DUST_SIZE = 1.0f;
 static const float STAR_DUST_DURATION_RATIO = 1.0f;
 static const int NUM_BOTTOMOUT_SPARKS = 30;
 static const float BOTTOMOUT_RADIUS = 2.5f;
+#ifdef RAD_VITA
+static float s_smokeFrameMs = 16.0f;    // length of the frame, for AddSmoke
+#endif
 static const int NUM_SMOKE_PARTICLES = 2; // Maximum number of particles per call for the smoke.
 static const float SMOKE_SIZE = 0.3f;
 static const int NUM_GAG_SPARKLES = 1;
@@ -731,7 +734,12 @@ void Sparkle::AddSmoke( const rmt::Matrix& Transform, const rmt::Vector& Offset,
     {
         d = int( rmt::Max( rmt::Abs( camPos.x ), rmt::Abs( camPos.z ) ) * 0.02f );
     }
+#ifdef RAD_VITA
+    // Per 30th of a second, at any frame rate. The rest of a puff is left to chance.
+    int numParticles = int( ( (float)( int( NUM_SMOKE_PARTICLES * Strength ) + 1 - d ) ) * s_smokeFrameMs * 0.03f + sRandom.Float() );
+#else
     int numParticles = int( NUM_SMOKE_PARTICLES * Strength ) + 1 - d;
+#endif
     if( numParticles <= 0 )
     {
         return;
@@ -777,6 +785,9 @@ Update the position/animation of all the coins.
 =============================================================================*/
 void Sparkle::Update( unsigned int Elapsedms )
 {
+#ifdef RAD_VITA
+    s_smokeFrameMs = (float)Elapsedms;
+#endif
     float deltaSeconds = (float)Elapsedms * 0.001f;
     bool HUDOnly = GetGameFlow()->GetCurrentContext() == CONTEXT_PAUSE;
 

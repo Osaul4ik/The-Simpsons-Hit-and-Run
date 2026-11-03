@@ -762,6 +762,9 @@ BEGIN_PROFILE("GeometryVehicle::Display SetUp")
         {
             // draw some particles
             //mEngineParticleAttr.mVelocity = vehicleVelocity / 45.0f;
+#ifdef RAD_VITA
+            mEngineParticleAttr.mEmissionBias = 0.5f;   // heavy smoke: half of the puffs
+#endif
             mParticleEmitter->Generate( VehicleParticleEmitter::eEngine,
                 mEngineParticleAttr, mVehicleOwner->mTransform);
 
@@ -1080,18 +1083,22 @@ END_PROFILE("GeometryVehicle::Ghost")
     }
 
 BEGIN_PROFILE("GeometryVehicle::CompDraw->Disp")
+#ifndef RAD_VITA    // once per frame, after all the cars: WorldRenderLayer. Here every car drew all the smoke again.
     if( smokeFirst )
     {
         GetSparkleManager()->Render( Sparkle::SRM_SortedOnly );
     }
+#endif
     if( sbDrawVehicle )
     {
         mCompositeDrawable->Display();
     }
+#ifndef RAD_VITA
     if( !smokeFirst )
     {
         GetSparkleManager()->Render( Sparkle::SRM_SortedOnly );
     }
+#endif
     if( m_Collectible )
     {
         rmt::Matrix transform = mVehicleOwner->GetTransform();

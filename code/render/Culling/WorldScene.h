@@ -146,6 +146,11 @@ protected:
    void Place( PathSegment*             ipPathSegment );
 
    void MarkCameraVisible( tPointCamera* pCam, unsigned int iFilter );
+#ifdef RAD_VITA
+public:
+   void RenderAfterGuts( void );
+protected:
+#endif
    void BuildFrustumPlanes( tPointCamera* pCam, FixedArray<rmt::Vector4>& orCamPlanes );
 
    void RenderScene( unsigned int iFilter, tPointCamera* ipCam );

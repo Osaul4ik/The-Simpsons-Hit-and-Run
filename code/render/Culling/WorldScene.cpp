@@ -284,6 +284,9 @@ extern int g_gxmFadeAlpha;     // pddi/gxm/context.cpp
 
 #ifdef RAD_VITA
 float g_vitaSmallThingDist = 100.0f;    // "smalldist=" in vita.cfg, code/main/win32main.cpp
+// A street lamp is a small sphere around its post, but its light on the ground reaches farther: it
+// went out while still on screen. So things stay until they are this far outside the view.
+float g_vitaCullMargin = 4.0f;          // "cullmargin=" in vita.cfg, metres
 #endif
 
 bool WorldScene::IsSphereInCone( rmt::Vector& irCenter, float iRadius )
@@ -308,6 +311,10 @@ bool WorldScene::IsSphereInCone( rmt::Vector& irCenter, float iRadius )
     {
         return false;
     }
+
+#ifdef RAD_VITA
+    iRadius += g_vitaCullMargin;
+#endif
 
     float Dsqr, e;
     rmt::Vector bigD, temp1, temp2;
@@ -1753,6 +1760,10 @@ BEGIN_PROFILE("qsort2 display")
 	{
 //BEGIN_PROFILE("translucent inner")	
 #ifdef RAD_VITA
+        if( mpZSortsPass2[i]->mDrawAfterGuts )
+        {
+            continue;
+        }
         g_gxmFadeAlpha = mpZSortsPass2[i]->FadeAlpha();
 #endif
 		mpZSortsPass2[i]->Display();
@@ -1763,6 +1774,24 @@ BEGIN_PROFILE("qsort2 display")
 	}
 END_PROFILE("qsort2 display")
 }
+
+#ifdef RAD_VITA
+// Particles go after the cars and characters: those are drawn last and would paint over the smoke
+// even where it is in front of them. Particles write no depth and still test it, so a car in front
+// of the smoke hides it.
+void WorldScene::RenderAfterGuts( void )
+{
+    for( int i = mpZSortsPass2.size() - 1; i > -1; i-- )
+    {
+        if( mpZSortsPass2[i]->mDrawAfterGuts )
+        {
+            g_gxmFadeAlpha = mpZSortsPass2[i]->FadeAlpha();
+            mpZSortsPass2[i]->Display();
+            g_gxmFadeAlpha = 255;
+        }
+    }
+}
+#endif
 
 //========================================================================
 // WorldScene::
@@ -2307,6 +2336,21 @@ void WorldScene::MarkCameraVisible( tPointCamera* pCam, unsigned int iFilter )
    //pCam->SetFarPlane(175.0f);
    BuildFrustumPlanes( pCam, mCamPlanes );
    pCam->SetFarPlane(tmpFar);
+#ifdef RAD_VITA
+   {
+      // The side planes move out by the same margin. Which side is inside depends on the sign of
+      // the plane, so it is measured with a point straight ahead of the camera.
+      const rmt::Matrix& camToWorld = pCam->GetCameraToWorldMatrix();
+      rmt::Vector ahead = camToWorld.Row( 3 );
+      ahead.ScaleAdd( 10.0f, camToWorld.Row( 2 ) );
+      for( int side = 0; side < 4; side++ )
+      {
+         rmt::Vector4& plane = mCamPlanes[ side ];
+         const float at = plane.x * ahead.x + plane.y * ahead.y + plane.z * ahead.z + plane.w;
+         plane.w += at >= 0.0f ? g_vitaCullMargin : -g_vitaCullMargin;
+      }
+   }
+#endif
    
    ViewVolSP.SetPlane( HexahedronP::msTop,     mCamPlanes[0].x, mCamPlanes[0].y, mCamPlanes[0].z, mCamPlanes[0].w );
    ViewVolSP.SetPlane( HexahedronP::msLeft,    mCamPlanes[1].x, mCamPlanes[1].y, mCamPlanes[1].z, mCamPlanes[1].w );

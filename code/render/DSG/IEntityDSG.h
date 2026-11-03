@@ -101,6 +101,9 @@ public:
 
 
    bool  mTranslucent;
+#ifdef RAD_VITA
+   bool  mDrawAfterGuts = false;     // WorldScene::RenderAfterGuts
+#endif
    tName mShaderName;
    static bool msDeletionsSafe;
 

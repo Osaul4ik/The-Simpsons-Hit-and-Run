@@ -53,6 +53,9 @@ ParticleSystemDSG::ParticleSystemDSG()
 mpController( NULL )
 {
 	IEntityDSG::mTranslucent = true;
+#ifdef RAD_VITA
+	IEntityDSG::mDrawAfterGuts = true;
+#endif
 }
 //===========================================================================
 // ParticleSystemDSG::~ParticleSystemDSG
