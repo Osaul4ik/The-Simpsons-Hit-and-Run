@@ -70,13 +70,13 @@ static void ProcessCommandLineArgumentsFromFile();
 //=============================================================================
 // Runtime settings (Vita). Read from ux0:data/simpsons/vita.cfg, one "key=value"
 // per line, so they can be tuned without rebuilding:
-//     fps=30            30 (default, 2 vblanks per frame) or 60 (1 vblank); also
-//                       chosen in the game's Options menu, which rewrites this line
+//     fps=30            30 (default), 50 or 60; also chosen in the game's Options menu,
+//                       which rewrites this line. Sets the CPU clock too: 60 fps runs at
+//                       444 MHz, 50 and 30 fps at 333 MHz (the GPU stays at 166 MHz)
 //     zonecache=6       max zones kept resident after leaving them (0 = off)
 //     log=0             1 = write ux0:data/simpsons/log.txt; 0 = no log and no timing for it
 //     prof=0            1 = also time every mark and add the [prof] table to the log (costs
 //                       about 2 ms per frame, so leave it off when judging the frame rate)
-//     cpu=444           CPU clock in MHz, 444 or 333 (the GPU stays at 166 MHz)
 //     soundthread=1     0 = service the sound on the main thread
 //     trilinear=1       0 = nearest mip level instead of blending between levels
 //     fastshaders=1     0 = only the packaged shaders, no runtime compiled variants
@@ -88,16 +88,15 @@ static void ProcessCommandLineArgumentsFromFile();
 #ifndef RAD_VITA_ZONE_CACHE_MAX_ZONES
 #define RAD_VITA_ZONE_CACHE_MAX_ZONES 6
 #endif
-#ifndef RAD_VITA_VBLANK_INTERVAL
-#define RAD_VITA_VBLANK_INTERVAL 2        // 2 = 30 fps (right for 333 MHz), 1 = 60 fps
+#ifndef RAD_VITA_FRAME_RATE
+#define RAD_VITA_FRAME_RATE 30            // 30, 50 or 60
 #endif
 int g_vitaZoneCacheMaxZones = RAD_VITA_ZONE_CACHE_MAX_ZONES;   // read by RenderManager
-int g_gxmVblankInterval     = RAD_VITA_VBLANK_INTERVAL;        // read by gxmDisplay::displayCallback
+int g_gxmFrameRate          = RAD_VITA_FRAME_RATE;             // read by gxmDisplay::displayCallback
 #ifdef RAD_LOG
 extern int g_vitaProfEnabled;                                  // code/debug/vitaprof.cpp
 #endif
 extern int g_vitaSoundWorker;                                  // code/sound/soundmanager.cpp
-static int s_vitaCpuMhz     = 444;
 static int s_vitaProf       = 0;
 int g_gxmTrilinear          = 1;                               // read by gxmMat::SetDevPass
 int g_gxmFastShaders        = 1;                               // read by gxmContext::LoadShaderVariants
@@ -105,10 +104,16 @@ int g_gxmHardwareSkinning   = 1;                               // read by gxmCon
 
 // The game always runs at these clocks, whatever was set before it started.
 #define RAD_VITA_GPU_MHZ 166
+static int VitaCpuMhzForFrameRate( int fps )
+{
+    return fps >= 60 ? 444 : 333;
+}
+
+void VitaSetFrameRate( int fps );
 
 static void SetVitaClocks()
 {
-    const int cpu = scePowerSetArmClockFrequency( s_vitaCpuMhz );
+    const int cpu = scePowerSetArmClockFrequency( VitaCpuMhzForFrameRate( g_gxmFrameRate ) );
     const int gpu = scePowerSetGpuClockFrequency( RAD_VITA_GPU_MHZ );
     rReleasePrintf( "[boot] clocks: CPU %d MHz (0x%08x), GPU %d MHz (0x%08x)\n",
                     scePowerGetArmClockFrequency(), cpu, scePowerGetGpuClockFrequency(), gpu );
@@ -128,7 +133,7 @@ static void LoadVitaConfig()
         int v = 0;
         if( sscanf( line, "fps=%d", &v ) == 1 )
         {
-            g_gxmVblankInterval = ( v >= 60 ) ? 1 : 2;
+            VitaSetFrameRate( v );
         }
         else if( sscanf( line, "log=%d", &v ) == 1 )
         {
@@ -137,10 +142,6 @@ static void LoadVitaConfig()
         else if( sscanf( line, "prof=%d", &v ) == 1 )
         {
             s_vitaProf = v != 0;
-        }
-        else if( sscanf( line, "cpu=%d", &v ) == 1 )
-        {
-            s_vitaCpuMhz = ( v == 333 ) ? 333 : 444;
         }
         else if( sscanf( line, "soundthread=%d", &v ) == 1 )
         {
@@ -169,12 +170,13 @@ static void LoadVitaConfig()
 // Frame rate choice of the options menu. Takes effect on the next frame.
 int VitaGetFrameRate()
 {
-    return ( g_gxmVblankInterval == 1 ) ? 60 : 30;
+    return g_gxmFrameRate;
 }
 
 void VitaSetFrameRate( int fps )
 {
-    g_gxmVblankInterval = ( fps >= 60 ) ? 1 : 2;
+    g_gxmFrameRate = ( fps >= 60 ) ? 60 : ( fps >= 50 ) ? 50 : 30;
+    SetVitaClocks();
 }
 
 // Writes the current frame rate to vita.cfg, keeping every other line of the file.
@@ -662,8 +664,8 @@ extern "C" int main( int argc, char *argv[] )
     LogProgress( "game initialized" );
 #if defined( RAD_VITA ) && defined( RAD_LOG )
     // boot is over: from here on log lines are buffered and written by a background thread
-    rReleasePrintf( "[boot] vblank interval=%d (%d fps), zone cache max=%d\n",
-                    g_gxmVblankInterval, 60 / g_gxmVblankInterval, g_vitaZoneCacheMaxZones );
+    rReleasePrintf( "[boot] frame rate=%d fps, zone cache max=%d\n",
+                    g_gxmFrameRate, g_vitaZoneCacheMaxZones );
     LogStartAsync();
 #endif
 

@@ -82,7 +82,7 @@ private:
 
 #ifdef RAD_VITA
     void UpdateFrameRateLabel();
-    void ToggleFrameRate();
+    void ToggleFrameRate( int direction );
 
     Scrooby::Text* m_frameRateLabel;    // only when the page has no usable value text for the choice
 
