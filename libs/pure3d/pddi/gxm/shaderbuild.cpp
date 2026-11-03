@@ -11,6 +11,7 @@
 #include <string>
 
 #include <psp2/io/stat.h>
+#include <psp2/kernel/threadmgr.h>
 #include <vitashark.h>
 
 #define SHADER_CACHE_DIR "ux0:data/simpsons/shadercache"
@@ -261,18 +262,25 @@ bool gxmShaderCompilerMissing()
     return s_compilerMissing;
 }
 
-bool gxmShaderCompile(gxmShaderId id)
-{
-    if(!LoadCompiler())
-        return false;
+// The compiler recurses deeply: the game thread's 256 KB stack is too little for it.
+#define SHADER_COMPILE_STACK_BYTES ( 4 * 1024 * 1024 )
 
+struct CompileJob
+{
+    gxmShaderId id;
+    bool saved;
+};
+
+static bool CompileAndSave(gxmShaderId id)
+{
     const std::string source = SourceOf(id);
     const bool vertex = id <= GXM_SHADER_V_SKIN_UNLIT;
-    uint32_t compiledSize = 0;
+    // in: length of the source, out: size of the program
+    uint32_t compiledSize = (uint32_t)source.size();
     SceGxmProgram* compiled = shark_compile_shader_extended(source.c_str(), &compiledSize,
         vertex ? SHARK_VERTEX_SHADER : SHARK_FRAGMENT_SHADER, SHARK_OPT_FAST, SHARK_ENABLE, SHARK_DISABLE, SHARK_DISABLE);
     bool saved = false;
-    if(compiled != NULL && compiledSize != 0)
+    if(compiled != NULL)
     {
         char path[128];
         snprintf(path, sizeof(path), SHADER_CACHE_DIR "/%s.gxp", kNames[id]);
@@ -293,13 +301,29 @@ bool gxmShaderCompile(gxmShaderId id)
     return saved;
 }
 
-void gxmShaderCompileEnd()
+static int CompileThread(SceSize args, void* argp)
 {
-    if(s_compilerLoaded)
+    CompileJob* job = *(CompileJob**)argp;
+    job->saved = CompileAndSave(job->id);
+    return sceKernelExitDeleteThread(0);
+}
+
+bool gxmShaderCompile(gxmShaderId id)
+{
+    if(!LoadCompiler())
+        return false;
+
+    CompileJob job = { id, false };
+    CompileJob* jobPointer = &job;
+    const SceUID thread = sceKernelCreateThread("shader_compile", CompileThread, 0x10000100, SHADER_COMPILE_STACK_BYTES, 0, 0, NULL);
+    if(thread < 0)
     {
-        shark_end();
-        s_compilerLoaded = false;
+        rReleasePrintf("[shader] could not create the compile thread: 0x%08x\n", thread);
+        return false;
     }
+    sceKernelStartThread(thread, sizeof(jobPointer), &jobPointer);
+    sceKernelWaitThreadEnd(thread, NULL, NULL);
+    return job.saved;
 }
 
 static bool s_variantsInUse = false;

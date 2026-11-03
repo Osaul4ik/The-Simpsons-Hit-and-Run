@@ -72,7 +72,9 @@ if(VITA)
 endif()
 
 if(VITA)
-	option(SRR2_LTO "Link time optimization (slower build; turn off if the link fails)" ON)
+	# Off by default: a build with it crashed in Vehicle::SetTransform on a corrupted object while
+	# loading a game. The code base breaks ODR and probably strict aliasing, which LTO can expose.
+	option(SRR2_LTO "Link time optimization (see the comment above before turning it on)" OFF)
 	if(SRR2_LTO AND NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
 		set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
 	endif()
@@ -113,9 +115,6 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
 			-mfpu=neon
 			# sqrtf etc. compile to the VFP instruction instead of a libm call that sets errno
 			-fno-math-errno
-			-fno-trapping-math
-			# 1.5 means 1.5f: no float -> double -> float conversions on a CPU with a slow double path
-			-fsingle-precision-constant
 		)
 	endif()
 endif()

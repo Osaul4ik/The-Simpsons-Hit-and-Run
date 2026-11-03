@@ -789,7 +789,6 @@ void CGuiScreenOptions::UpdateShaderCompile()
     {
         m_compileNext = -1;
         m_compileFinished = true;
-        gxmShaderCompileEnd();
         this->UpdateShaderStatus();
     }
 }

@@ -21,6 +21,8 @@
 #define RAD_GXM_TRILINEAR_ALL 1
 #endif
 
+extern int g_gxmTrilinear;     // "trilinear=0" in vita.cfg, code/main/win32main.cpp
+
 pddiShadeColourTable gxmMat::colourTable[] = 
 {
     {PDDI_SP_AMBIENT  , SHADE_COLOUR(&gxmMat::SetAmbient)},
@@ -372,7 +374,7 @@ void gxmMat::SetDevPass(unsigned pass)
         // drawn is written (see gxmTexture::ApplySamplerState).
         const pddiFilterMode fm = texEnv[i].filterMode;
         const int storedMips = texEnv[i].texture->GetMipCount();
-        const bool blendLevels = fm != PDDI_FILTER_NONE && (RAD_GXM_TRILINEAR_ALL || fm == PDDI_FILTER_MIPMAP_TRILINEAR);
+        const bool blendLevels = fm != PDDI_FILTER_NONE && g_gxmTrilinear && (RAD_GXM_TRILINEAR_ALL || fm == PDDI_FILTER_MIPMAP_TRILINEAR);
         texEnv[i].texture->ApplySamplerState(filterMagTable[fm], filterMinTable[fm],
                                              uvTable[texEnv[i].uvMode], uvTable[texEnv[i].uvMode],
                                              storedMips > 1 ? (fm == PDDI_FILTER_NONE ? 1 : storedMips) : 0,

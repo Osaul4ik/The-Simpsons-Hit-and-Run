@@ -29,7 +29,6 @@ void gxmShaderBuildFree(void* gxp);
 bool gxmShaderIsCompiled(gxmShaderId id);
 bool gxmShaderCompile(gxmShaderId id);      // compiles and saves one program; slow, returns when done
 bool gxmShaderCompilerMissing();            // libshacccg.suprx could not be loaded
-void gxmShaderCompileEnd();                 // unloads the compiler again
 
 // What the running game uses; programs are only picked up when the game starts
 void gxmShaderSetInUse(bool variants, bool hardwareSkinning);
