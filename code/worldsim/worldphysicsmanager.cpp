@@ -1199,10 +1199,20 @@ void WorldPhysicsManager::Update(unsigned int timeDeltaMilliSeconds)
     //       one frame WAY over the threshold
     unsigned numSubsteps = 1;
 
+#ifdef RAD_VITA
+    // The frame time comes in whole vblanks here: 33, 50, 67 ms. A frame that just missed its vblank
+    // makes the next one 50 ms, which must not make that one heavier with a second step, or the
+    // game stays behind for as long as the crash on screen lasts. From 3 vblanks up it is split.
+    if(timeDeltaMilliSeconds > 52)
+    {
+        numSubsteps = (timeDeltaMilliSeconds + 34) / 35;
+    }
+#else
     if(((mLastTime > 35) && (timeDeltaMilliSeconds > 35)) || (timeDeltaMilliSeconds > 50))
     {
         numSubsteps = (timeDeltaMilliSeconds + 34) / 35;
     }
+#endif
 
     mLastTime = timeDeltaMilliSeconds;
 
