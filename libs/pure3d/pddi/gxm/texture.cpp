@@ -18,6 +18,7 @@
 #endif
 
 #include <microprofile.h>
+#include <arm_neon.h>
 
 // Palettized (4/8 bit) textures are stored natively as P8 with a 256 entry palette.
 // The palette words are 0xAARRGGBB like pddiColour. If red and blue come out swapped on
@@ -47,6 +48,18 @@
 
 #ifndef RAD_GXM_TEXTURE_MIPS
 #define RAD_GXM_TEXTURE_MIPS 1
+#endif
+
+// Textures whose smaller side is below this many pixels get no mip chain: they hardly ever
+// shimmer and the +33% memory is better spent elsewhere. Must be a power of two >= 16.
+#ifndef RAD_GXM_TEXTURE_MIN_MIP_SIZE
+#define RAD_GXM_TEXTURE_MIN_MIP_SIZE 64
+#endif
+
+// Keep the alpha-test coverage of cutout textures (fences, grates, foliage) constant across
+// mip levels so they do not fade away with distance. Build with -DRAD_GXM_MIP_ALPHA_COVERAGE=0 to disable.
+#ifndef RAD_GXM_MIP_ALPHA_COVERAGE
+#define RAD_GXM_MIP_ALPHA_COVERAGE 1
 #endif
 
 static inline SceGxmTextureFormat PickPixelFormat(pddiPixelFormat format)
@@ -151,6 +164,14 @@ static inline void FreeGpuMem(void* p)
 // Mip chain generation. Levels are tight (stride == width) and in memory order, i.e. the
 // same row order Lock(0) hands out, so the box filter does not care about image orientation.
 // ---------------------------------------------------------------------------------------
+static inline void Box32Pixel(const uint8_t* a, const uint8_t* b, const uint8_t* c, const uint8_t* d, uint8_t* out)
+{
+    for(int k = 0; k < 4; k++)
+        out[k] = (uint8_t)((a[k] + b[k] + c[k] + d[k] + 2) >> 2);
+}
+
+// 32 bit: every channel (alpha included) is the rounded mean of the 2x2 block. NEON handles
+// 4 output pixels per iteration; the scalar tail gives bit-identical results.
 static void Downsample32(const uint8_t* src, uint8_t* dst, int w, int h)
 {
     const int dw = rmt::Max(w >> 1, 1), dh = rmt::Max(h >> 1, 1);
@@ -159,19 +180,44 @@ static void Downsample32(const uint8_t* src, uint8_t* dst, int w, int h)
     {
         const uint8_t* r0 = src + size_t(y * 2) * w * 4;
         const uint8_t* r1 = src + size_t(y * 2 + sy) * w * 4;
-        for(int x = 0; x < dw; x++)
+        uint8_t* out = dst + size_t(y) * dw * 4;
+        int x = 0;
+        if(sx && sy)
+        {
+            const uint16x8_t two = vdupq_n_u16(2);
+            for(; x + 4 <= dw; x += 4)
+            {
+                // even / odd pixels of 8 source pixels per row
+                const uint32x4x2_t p0 = vld2q_u32((const uint32_t*)(r0 + x * 8));
+                const uint32x4x2_t p1 = vld2q_u32((const uint32_t*)(r1 + x * 8));
+                const uint8x16_t e0 = vreinterpretq_u8_u32(p0.val[0]), o0 = vreinterpretq_u8_u32(p0.val[1]);
+                const uint8x16_t e1 = vreinterpretq_u8_u32(p1.val[0]), o1 = vreinterpretq_u8_u32(p1.val[1]);
+                const uint16x8_t lo = vaddq_u16(vaddl_u8(vget_low_u8(e0), vget_low_u8(o0)),
+                                                vaddl_u8(vget_low_u8(e1), vget_low_u8(o1)));
+                const uint16x8_t hi = vaddq_u16(vaddl_u8(vget_high_u8(e0), vget_high_u8(o0)),
+                                                vaddl_u8(vget_high_u8(e1), vget_high_u8(o1)));
+                vst1q_u8(out + x * 4, vcombine_u8(vshrn_n_u16(vaddq_u16(lo, two), 2),
+                                                  vshrn_n_u16(vaddq_u16(hi, two), 2)));
+            }
+        }
+        for(; x < dw; x++)
         {
             const uint8_t* a = r0 + x * 2 * 4;
-            const uint8_t* b = a + sx * 4;
             const uint8_t* c = r1 + x * 2 * 4;
-            const uint8_t* d = c + sx * 4;
-            for(int k = 0; k < 4; k++)
-                dst[k] = (uint8_t)((a[k] + b[k] + c[k] + d[k] + 2) >> 2);
-            dst += 4;
+            Box32Pixel(a, a + sx * 4, c, c + sx * 4, out + x * 4);
         }
     }
 }
 
+static inline uint16_t Box565Pixel(uint16_t p0, uint16_t p1, uint16_t p2, uint16_t p3)
+{
+    const int r = ((p0 >> 11) & 0x1f) + ((p1 >> 11) & 0x1f) + ((p2 >> 11) & 0x1f) + ((p3 >> 11) & 0x1f);
+    const int g = ((p0 >> 5) & 0x3f) + ((p1 >> 5) & 0x3f) + ((p2 >> 5) & 0x3f) + ((p3 >> 5) & 0x3f);
+    const int b = (p0 & 0x1f) + (p1 & 0x1f) + (p2 & 0x1f) + (p3 & 0x1f);
+    return (uint16_t)((((r + 2) >> 2) << 11) | (((g + 2) >> 2) << 5) | ((b + 2) >> 2));
+}
+
+// RGB565: NEON does 8 output pixels per iteration.
 static void Downsample565(const uint8_t* src, uint8_t* dst, int w, int h)
 {
     const int dw = rmt::Max(w >> 1, 1), dh = rmt::Max(h >> 1, 1);
@@ -180,20 +226,103 @@ static void Downsample565(const uint8_t* src, uint8_t* dst, int w, int h)
     {
         const uint16_t* r0 = (const uint16_t*)src + size_t(y * 2) * w;
         const uint16_t* r1 = (const uint16_t*)src + size_t(y * 2 + sy) * w;
-        for(int x = 0; x < dw; x++)
+        uint16_t* out = (uint16_t*)dst + size_t(y) * dw;
+        int x = 0;
+        if(sx && sy)
         {
-            const uint16_t p[4] = { r0[x * 2], r0[x * 2 + sx], r1[x * 2], r1[x * 2 + sx] };
-            int r = 0, g = 0, b = 0;
-            for(int k = 0; k < 4; k++)
+            const uint16x8_t m1f = vdupq_n_u16(0x1f), m3f = vdupq_n_u16(0x3f), two = vdupq_n_u16(2);
+            for(; x + 8 <= dw; x += 8)
             {
-                r += (p[k] >> 11) & 0x1f;
-                g += (p[k] >> 5) & 0x3f;
-                b += p[k] & 0x1f;
+                const uint16x8x2_t p0 = vld2q_u16(r0 + x * 2);
+                const uint16x8x2_t p1 = vld2q_u16(r1 + x * 2);
+                const uint16x8_t r = vaddq_u16(vaddq_u16(
+                        vandq_u16(vshrq_n_u16(p0.val[0], 11), m1f), vandq_u16(vshrq_n_u16(p0.val[1], 11), m1f)),
+                        vaddq_u16(vandq_u16(vshrq_n_u16(p1.val[0], 11), m1f), vandq_u16(vshrq_n_u16(p1.val[1], 11), m1f)));
+                const uint16x8_t g = vaddq_u16(vaddq_u16(
+                        vandq_u16(vshrq_n_u16(p0.val[0], 5), m3f), vandq_u16(vshrq_n_u16(p0.val[1], 5), m3f)),
+                        vaddq_u16(vandq_u16(vshrq_n_u16(p1.val[0], 5), m3f), vandq_u16(vshrq_n_u16(p1.val[1], 5), m3f)));
+                const uint16x8_t b = vaddq_u16(vaddq_u16(
+                        vandq_u16(p0.val[0], m1f), vandq_u16(p0.val[1], m1f)),
+                        vaddq_u16(vandq_u16(p1.val[0], m1f), vandq_u16(p1.val[1], m1f)));
+                const uint16x8_t r2 = vshrq_n_u16(vaddq_u16(r, two), 2);
+                const uint16x8_t g2 = vshrq_n_u16(vaddq_u16(g, two), 2);
+                const uint16x8_t b2 = vshrq_n_u16(vaddq_u16(b, two), 2);
+                vst1q_u16(out + x, vorrq_u16(vorrq_u16(vshlq_n_u16(r2, 11), vshlq_n_u16(g2, 5)), b2));
             }
-            ((uint16_t*)dst)[y * dw + x] = (uint16_t)((((r + 2) >> 2) << 11) | (((g + 2) >> 2) << 5) | ((b + 2) >> 2));
         }
+        for(; x < dw; x++)
+            out[x] = Box565Pixel(r0[x * 2], r0[x * 2 + sx], r1[x * 2], r1[x * 2 + sx]);
     }
 }
+
+#if RAD_GXM_MIP_ALPHA_COVERAGE
+// Alpha-tested ("cutout") textures lose coverage when averaged: thin bars of a fence fade to
+// alpha < 0.5 and vanish at distance. Rescale each level's alpha so that the share of texels
+// passing the usual 0.5 alpha test matches level 0. Only done for textures whose alpha is
+// (nearly) binary, so smooth translucency (glass, smoke) is left alone.
+static void AlphaHistogram(const uint8_t* px, size_t n, uint32_t* hist)
+{
+    memset(hist, 0, 256 * sizeof(uint32_t));
+    for(size_t i = 0; i < n; i++)
+        hist[px[i * 4 + 3]]++;
+}
+
+static inline float AlphaCoverage(const uint32_t* hist, size_t n)
+{
+    size_t pass = 0;
+    for(int a = 128; a < 256; a++)
+        pass += hist[a];
+    return n ? float(pass) / float(n) : 0.0f;
+}
+
+// true if most texels are (nearly) fully transparent or opaque and some are transparent
+static bool IsCutoutAlpha(const uint32_t* hist, size_t n)
+{
+    size_t mid = 0;
+    for(int a = 32; a < 224; a++)
+        mid += hist[a];
+    size_t clear = 0;
+    for(int a = 0; a < 128; a++)
+        clear += hist[a];
+    return n && clear > 0 && mid * 10 <= n;
+}
+
+static void PreserveAlphaCoverage(uint8_t* px, size_t n, float target)
+{
+    uint32_t hist[256];
+    AlphaHistogram(px, n, hist);
+    if(target <= 0.0f || n == 0)
+        return;
+
+    // Try scales 2^(k/8) for k in [-8,16] (0.5 .. 4) and keep the one whose coverage is closest
+    // to the target; on ties prefer the scale nearest 1. Picking the closest (instead of "at
+    // least the target") avoids turning a thin fence into a solid wall when the alpha of a
+    // level is nearly flat and coverage jumps from 0 to 1.
+    float hi = 1.0f, bestErr = 2.0f;
+    for(int step = 0; step <= 32; step++)
+    {
+        const int k = (step & 1) ? -((step + 1) >> 1) : (step >> 1);    // 0,-1,1,-2,2,... (nearest 1 first)
+        if(k < -8 || k > 16)
+            continue;
+        const float scale = powf(2.0f, k / 8.0f);
+        size_t pass = 0;
+        for(int a = 0; a < 256; a++)
+            if(a * scale >= 127.5f)
+                pass += hist[a];
+        const float err = fabsf(float(pass) / float(n) - target);
+        if(err < bestErr - 1e-6f)
+        {
+            bestErr = err;
+            hi = scale;
+        }
+    }
+    uint8_t lut[256];
+    for(int a = 0; a < 256; a++)
+        lut[a] = (uint8_t)rmt::Min(255, int(a * hi + 0.5f));
+    for(size_t i = 0; i < n; i++)
+        px[i * 4 + 3] = lut[px[i * 4 + 3]];
+}
+#endif
 
 // Palette indices cannot be averaged. Pick, out of each 2x2 block, the texel whose colour is
 // closest to the block average: the result only uses colours the palette really has.
@@ -252,6 +381,18 @@ void gxmTexture::UploadChain(const uint8_t* level0, const uint32_t* palette, int
     uint8_t* owned = NULL;      // buffer currently held in 'cur' (not level0)
     int levelsDone = 0;
 
+#if RAD_GXM_MIP_ALPHA_COVERAGE
+    bool cutout = false;
+    float coverage = 0.0f;
+    if(hasAlpha && bpp8 == 4 && mipCount > 1 && firstLevel == 0)
+    {
+        uint32_t hist[256];
+        AlphaHistogram(level0, size_t(xSize) * ySize, hist);
+        cutout = IsCutoutAlpha(hist, size_t(xSize) * ySize);
+        coverage = AlphaCoverage(hist, size_t(xSize) * ySize);
+    }
+#endif
+
     for(int l = 0; l < mipCount; l++)
     {
         if(l >= firstLevel)
@@ -277,7 +418,13 @@ void gxmTexture::UploadChain(const uint8_t* level0, const uint32_t* palette, int
         else if(bpp8 == 2)
             Downsample565(cur, next, w, h);
         else
+        {
             Downsample32(cur, next, w, h);
+#if RAD_GXM_MIP_ALPHA_COVERAGE
+            if(cutout)
+                PreserveAlphaCoverage(next, size_t(nw) * nh, coverage);
+#endif
+        }
 
         if(owned)
             radMemoryFreeAligned(owned);
@@ -374,6 +521,7 @@ bool gxmTexture::Create(int x, int y, int bpp, int alphaDepth, int nMip, pddiTex
     swizzled = false;
     mipCount = 1;
     validMips = 1;
+    hasAlpha = (alphaDepth > 0 && bpp == 32 && !palettized);
 #if RAD_GXM_TEXTURE_SWIZZLE
     if(!compressed && !yuv && usageHint == PDDI_USAGE_STATIC &&
        log2X >= 3 && log2Y >= 3 &&
@@ -382,7 +530,7 @@ bool gxmTexture::Create(int x, int y, int bpp, int alphaDepth, int nMip, pddiTex
         swizzled = true;
 #if RAD_GXM_TEXTURE_MIPS
         const int minLog = rmt::Min(log2X, log2Y);
-        if(minLog >= 4)
+        if(rmt::Min(xSize, ySize) >= RAD_GXM_TEXTURE_MIN_MIP_SIZE && minLog >= 4)
             mipCount = minLog - 2;
 #endif
     }
@@ -558,6 +706,7 @@ gxmTexture::gxmTexture(gxmContext* c)
     nPalette = 0;
     opaquePalette = false;
     swizzled = false;
+    hasAlpha = false;
     mipCount = 1;
     validMips = 1;
     pendingLinear = NULL;

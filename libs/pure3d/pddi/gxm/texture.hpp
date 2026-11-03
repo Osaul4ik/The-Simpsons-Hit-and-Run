@@ -69,6 +69,7 @@ protected:
     int stride;         // bytes per row of the base level (linear textures)
     void* lockTemp;     // temporary buffer of the current Lock() (DXT, swizzled, mip > 0), or NULL
     bool swizzled;      // stored swizzled (uncompressed path)
+    bool hasAlpha;      // 32 bit texture with an alpha channel
     int mipCount;       // levels allocated
     int validMips;      // levels that hold valid data
     void* pendingLinear;// P8 only: level 0 (tight, memory order) kept until the palette arrives
