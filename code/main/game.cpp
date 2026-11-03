@@ -57,8 +57,6 @@
 #include <p3d/fileftt.hpp>
 #ifdef RAD_VITA
 #include <psp2/display.h>
-#include <psp2/kernel/cpu.h>
-#include <psp2/kernel/threadmgr.h>
 extern int g_vitaSmoothLoad;     // code/main/win32main.cpp
 extern int g_vitaFramePace;      // code/main/win32main.cpp
 int VitaGetFrameRate();
@@ -760,8 +758,6 @@ void Game::Run()
             if( ft > worstUs ) worstUs = ft;
             if( ft > 20000 ) nOver20++;
             if( ft > 40000 ) nOver40++;
-            static unsigned mainThreadOnCore[ 4 ] = { 0, 0, 0, 0 };
-            mainThreadOnCore[ sceKernelGetCpuId() & 3 ]++;
             if( ++nFrames >= 300 )
             {
                 rReleasePrintf( "[fps] last 300 gameplay frames: avg %u.%u ms (%u fps), worst %u ms, >20ms: %u, >40ms: %u\n",
@@ -780,10 +776,6 @@ void Game::Run()
                                 (unsigned)( renderUs / nFrames / 1000 ), (unsigned)( ( renderUs / nFrames / 100 ) % 10 ),
                                 (unsigned)( servicesUs / nFrames / 1000 ), (unsigned)( ( servicesUs / nFrames / 100 ) % 10 ),
                                 (unsigned)( loaderUs / nFrames / 1000 ), (unsigned)( ( loaderUs / nFrames / 100 ) % 10 ) );
-                rReleasePrintf( "[cpu] main thread frames on core 0/1/2: %u/%u/%u, mask 0x%x\n",
-                                mainThreadOnCore[ 0 ], mainThreadOnCore[ 1 ], mainThreadOnCore[ 2 ],
-                                sceKernelGetThreadCpuAffinityMask( sceKernelGetThreadId() ) );
-                mainThreadOnCore[ 0 ] = mainThreadOnCore[ 1 ] = mainThreadOnCore[ 2 ] = mainThreadOnCore[ 3 ] = 0;
                 vitaProfReport( nFrames );
                 sumUs = 0; worstUs = 0; nFrames = 0; nOver20 = 0; nOver40 = 0;
                 flowUs = 0; renderUs = 0; servicesUs = 0; loaderUs = 0;

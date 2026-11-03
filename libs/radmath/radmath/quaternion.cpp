@@ -16,10 +16,6 @@
 
 #include <radmath/quaternion.hpp>
 #include <radmath/matrix.hpp>
-#ifdef RAD_VITA
-#include <atomic>
-#include <string.h>
-#endif
 
 namespace RadicalMathLibrary
 {
@@ -303,62 +299,6 @@ void Quaternion::MakeClosest(const Quaternion& q)
 
 }
 
-#ifdef RAD_VITA
-// Animation blends the same pairs of keys frame after frame, so the same angle comes back: acos
-// and 1/sin are only worked out once for it. Exact match on the bits, so the same result.
-// The flag is for the loader thread: whoever does not get it just computes the values.
-namespace
-{
-    struct SlerpCacheEntry
-    {
-        unsigned input;
-        float omega;
-        float oneOverSinOmega;      // never 0 once stored: 0 marks an empty entry
-    };
-    SlerpCacheEntry s_slerpCache[256];
-    std::atomic_flag s_slerpCacheBusy = ATOMIC_FLAG_INIT;
-
-    inline SlerpCacheEntry& SlerpCacheSlot(unsigned bits)
-    {
-        return s_slerpCache[(bits ^ (bits >> 11) ^ (bits >> 19)) & 255u];
-    }
-
-    inline bool SlerpCacheFind(float input, float& omega, float& oneOverSinOmega)
-    {
-        if(s_slerpCacheBusy.test_and_set(std::memory_order_acquire))
-        {
-            return false;
-        }
-        unsigned bits;
-        memcpy(&bits, &input, sizeof(bits));
-        const SlerpCacheEntry& entry = SlerpCacheSlot(bits);
-        const bool found = entry.oneOverSinOmega != 0.0f && entry.input == bits;
-        if(found)
-        {
-            omega = entry.omega;
-            oneOverSinOmega = entry.oneOverSinOmega;
-        }
-        s_slerpCacheBusy.clear(std::memory_order_release);
-        return found;
-    }
-
-    inline void SlerpCacheStore(float input, float omega, float oneOverSinOmega)
-    {
-        if(s_slerpCacheBusy.test_and_set(std::memory_order_acquire))
-        {
-            return;
-        }
-        unsigned bits;
-        memcpy(&bits, &input, sizeof(bits));
-        SlerpCacheEntry& entry = SlerpCacheSlot(bits);
-        entry.input = bits;
-        entry.omega = omega;
-        entry.oneOverSinOmega = oneOverSinOmega;
-        s_slerpCacheBusy.clear(std::memory_order_release);
-    }
-}
-#endif
-
 // ASSUMES qS and qE are unit quaternions.
 // code is based on listing 15.3 on page 364 in Watt & Watt
 void Quaternion::Slerp(const Quaternion& q1, const Quaternion& q2, const float t)
@@ -386,18 +326,8 @@ void Quaternion::Slerp(const Quaternion& q1, const Quaternion& q2, const float t
     else
     {
         // angle between qS and qE is NOT small enough - do spherical interpolation
-#ifdef RAD_VITA
-        float omega, one_over_sin_omega;
-        if(!SlerpCacheFind(cos_omega, omega, one_over_sin_omega))
-        {
-            omega = ACos(cos_omega);
-            one_over_sin_omega = 1.0f / Sin(omega);
-            SlerpCacheStore(cos_omega, omega, one_over_sin_omega);
-        }
-#else
         float omega = ACos(cos_omega);  //  angle between qS and qE
         float one_over_sin_omega = 1.0f / Sin(omega);
-#endif
         scale_qS = Sin((1.0f - t) * omega) * one_over_sin_omega;
         scale_qE *= Sin(t*omega) * one_over_sin_omega;
     }

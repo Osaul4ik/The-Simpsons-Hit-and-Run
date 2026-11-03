@@ -31,7 +31,6 @@
 #include <psp2/kernel/clib.h>
 #include <psp2/kernel/sysmem.h>
 #include <psp2/kernel/threadmgr.h>
-#include <psp2/kernel/cpu.h>
 #include <radmemory.hpp>
 unsigned int sceLibcHeapSize = 16 * 1024 * 1024;
 
@@ -82,7 +81,6 @@ static void ProcessCommandLineArgumentsFromFile();
 //                       game has 63, higher costs more draw calls
 //     framepace=1       0 = the game simulates the time the clock shows instead of the time the
 //                       frames stay on screen
-//     maincore=-1       0, 1 or 2 = keep the main thread on that core; -1 = as the system decides
 //     smoothload=1      0 = the loader always gets 4 ms per frame during play, instead of what
 //                       the frame has left
 //     log=0             1 = write ux0:data/simpsons/log.txt; 0 = no log and no timing for it
@@ -115,7 +113,6 @@ extern float g_vitaParticleBudget;                             // p3d/effects/pa
 int g_vitaFramePace         = 1;                               // read by Game::Run
 int g_vitaSmoothLoad        = 1;                               // read by Game::Run
 extern int g_vitaSoundWorker;                                  // code/sound/soundmanager.cpp
-static int s_vitaMainCore    = -1;
 static int s_vitaProf       = 0;
 int g_gxmTrilinear          = 1;                               // read by gxmMat::SetDevPass
 int g_gxmFastShaders        = 1;                               // read by gxmContext::LoadShaderVariants
@@ -171,10 +168,6 @@ static void LoadVitaConfig()
         else if( sscanf( line, "framepace=%d", &v ) == 1 )
         {
             g_vitaFramePace = v != 0;
-        }
-        else if( sscanf( line, "maincore=%d", &v ) == 1 )
-        {
-            s_vitaMainCore = v;
         }
         else if( sscanf( line, "smoothload=%d", &v ) == 1 )
         {
@@ -621,11 +614,6 @@ extern "C" int main( int argc, char *argv[] )
     rReleasePrintf( "[boot] newlib heap requested: %d MB\n", RAD_VITA_HEAP_MB );
 #endif
     SetVitaClocks();
-    if( s_vitaMainCore >= 0 && s_vitaMainCore <= 2 )
-    {
-        const int result = sceKernelChangeThreadCpuAffinityMask( sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_0 << s_vitaMainCore );
-        rReleasePrintf( "[cpu] main thread kept on core %d: 0x%x\n", s_vitaMainCore, result );
-    }
 #endif
     LogProgress( "start" );
 

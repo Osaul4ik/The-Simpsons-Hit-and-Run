@@ -811,9 +811,18 @@ void Sparkle::Update( unsigned int Elapsedms )
             }
             else if( s.Motion == SM_Drift )
             {
+#ifdef RAD_VITA
+                // By the time, not by the frame: a frame can be 1 or 2 vblanks long.
+                const float frames = (float)Elapsedms * 0.06f;
+                const float drag = rmt::Max( 1.0f - ( 1.0f - DRIFT_DRAG ) * frames, 0.0f );
+                s.Position.ScaleAdd( frames, s.Velocity );
+                s.Velocity.x *= drag;
+                s.Velocity.z *= drag;
+#else
                 s.Position.Add( s.Velocity );
                 s.Velocity.x *= DRIFT_DRAG;
                 s.Velocity.z *= DRIFT_DRAG;
+#endif
             }
             else
             {

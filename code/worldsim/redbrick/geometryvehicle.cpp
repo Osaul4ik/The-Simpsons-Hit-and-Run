@@ -750,6 +750,12 @@ BEGIN_PROFILE("GeometryVehicle::Display SetUp")
         if( ( mEngineParticleAttr.mType == ParticleEnum::eEngineSmokeLight ) ||
             ( mEngineParticleAttr.mType == ParticleEnum::eEngineSmokeMedium ) )
         {
+#ifdef RAD_VITA
+            // Sparkle::Update counts this in 60ths of a second. What the car moved since the last
+            // frame is twice that after a 2 vblank frame, and such a puff flies ahead of the car.
+            movement = vehicleVelocity;
+            movement.Scale( 1.0f / 60.0f );
+#endif
             GetSparkleManager()->AddSmoke( mVehicleOwner->mTransform, mVehicleOwner->GetSmokeOffset(), movement, ( ( 0.4f - mVehicleOwner->GetVehicleLifePercentage( mVehicleOwner->mHitPoints ) ) * 2.5f ) );
         }
         else

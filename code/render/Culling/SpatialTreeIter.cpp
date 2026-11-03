@@ -229,25 +229,6 @@ void SpatialTreeIter::MarkAll( int                 iCurNodeOffset,
                                   SphereSP&    irDesiredVolume, 
                                   tMark               iMark )
 {
-#ifdef RAD_VITA
-   // The box is only cut and handed down here, nothing reads it. Same nodes in the same order.
-   for( ;; )
-   {
-      ContiguousBinNode< SpatialNode >* pNode = mpRootNode + iCurNodeOffset;
-      mCurNodes.Add( &pNode->mData );
-      mNodeMarks[iCurNodeOffset] |= iMark;
-      if( pNode->GetSubTreeSize() == 0 )
-      {
-         return;
-      }
-      const float side = irDesiredVolume.CompareTo( pNode->mData.mSubDivPlane );
-      if( side == 0.0f )
-      {
-         MarkAll( iCurNodeOffset + pNode->LChildOffset(), irBoxPts, irDesiredVolume, iMark );
-      }
-      iCurNodeOffset += side > 0.0f ? pNode->LChildOffset() : pNode->RChildOffset();
-   }
-#else
    ContiguousBinNode< SpatialNode >* pCurNode = (mpRootNode+iCurNodeOffset);
 
    SpatialNode* pFuckinCast;
@@ -290,7 +271,6 @@ void SpatialTreeIter::MarkAll( int                 iCurNodeOffset,
             MarkAll( iCurNodeOffset + pCurNode->RChildOffset(), irBoxPts, irDesiredVolume, iMark );
        }
    }
-#endif
 #if 0
    if( irBoxPts.TestNotOutside( irDesiredVolume ) < 0.0f ) 
    {
