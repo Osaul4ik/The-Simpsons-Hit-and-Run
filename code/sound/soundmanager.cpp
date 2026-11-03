@@ -20,6 +20,7 @@
 // Project Includes
 //========================================
 #include <sound/soundmanager.h>
+#include <debug/profiler.h>
 
 #include <sound/soundrenderer/soundrenderingmanager.h>
 #include <sound/soundrenderer/idasoundtuner.h>
@@ -192,10 +193,14 @@ void SoundManager::Update()
         return;
     }
 
+    BEGIN_PROFILE( "Sound: music" );
     m_musicPlayer->Service();
+    END_PROFILE( "Sound: music" );
 
     rAssert( m_pSoundRenderMgr != NULL );
+    BEGIN_PROFILE( "Sound: render" );
     m_pSoundRenderMgr->Service();
+    END_PROFILE( "Sound: render" );
 }
 
 //==============================================================================

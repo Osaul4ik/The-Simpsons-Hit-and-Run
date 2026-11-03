@@ -73,6 +73,7 @@ static void ProcessCommandLineArgumentsFromFile();
 //     fps=30            30 (default, 2 vblanks per frame) or 60 (1 vblank); also
 //                       chosen in the game's Options menu, which rewrites this line
 //     zonecache=6       max zones kept resident after leaving them (0 = off)
+//     prof=1            0 = no per-mark timing in the log (only in builds with a log)
 //     trilinear=1       0 = nearest mip level instead of blending between levels
 //     fastshaders=1     0 = only the packaged shaders, no runtime compiled variants
 //     hwskin=1          0 = skin on the CPU (NEON) even when the shaders compiled
@@ -88,6 +89,9 @@ static void ProcessCommandLineArgumentsFromFile();
 #endif
 int g_vitaZoneCacheMaxZones = RAD_VITA_ZONE_CACHE_MAX_ZONES;   // read by RenderManager
 int g_gxmVblankInterval     = RAD_VITA_VBLANK_INTERVAL;        // read by gxmDisplay::displayCallback
+#ifdef RAD_LOG
+extern int g_vitaProfEnabled;                                  // code/debug/vitaprof.cpp
+#endif
 int g_gxmTrilinear          = 1;                               // read by gxmMat::SetDevPass
 int g_gxmFastShaders        = 1;                               // read by gxmContext::LoadShaderVariants
 int g_gxmHardwareSkinning   = 1;                               // read by gxmContext::LoadShaderVariants
@@ -119,6 +123,12 @@ static void LoadVitaConfig()
         {
             g_gxmVblankInterval = ( v >= 60 ) ? 1 : 2;
         }
+#ifdef RAD_LOG
+        else if( sscanf( line, "prof=%d", &v ) == 1 )
+        {
+            g_vitaProfEnabled = v != 0;
+        }
+#endif
         else if( sscanf( line, "trilinear=%d", &v ) == 1 )
         {
             g_gxmTrilinear = v != 0;

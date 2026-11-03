@@ -745,11 +745,7 @@ void IntersectManager::FindTrigVolElems
     ReserveArray<TriggerVolume*>& orList 
 )
 {
-#ifdef PROFILER_ENABLED
-    char temp[100];
-    sprintf(temp, "::FindTrigVolElems %f", iRadius);
-#endif
-BEGIN_PROFILE(temp)  
+BEGIN_PROFILE("FindTrigVolElems")
    //SpatialNode<StaticEntityDSG,StaticPhysDSG,IntersectDSG>& rCurrentLeaf = 
    SphereSP desiredVol;
    desiredVol.SetTo(irPosn,iRadius);
@@ -789,7 +785,7 @@ BEGIN_PROFILE(temp)
          }
       }
    }
-END_PROFILE(temp)  
+END_PROFILE("FindTrigVolElems")
 }
 
 

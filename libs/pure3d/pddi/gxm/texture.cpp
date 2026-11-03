@@ -20,6 +20,17 @@
 #include <microprofile.h>
 #include <arm_neon.h>
 
+// Time spent on textures in the log (code/debug/vitaprof.cpp)
+#ifdef RAD_LOG
+#include <psp2/kernel/processmgr.h>
+extern "C" void vitaProfAdd(const char* name, unsigned microseconds);
+#define TEX_TIMER_START() const unsigned texTimerStart = sceKernelGetProcessTimeLow()
+#define TEX_TIMER_END(name) vitaProfAdd(name, sceKernelGetProcessTimeLow() - texTimerStart)
+#else
+#define TEX_TIMER_START()
+#define TEX_TIMER_END(name)
+#endif
+
 // Palettized (4/8 bit) textures are stored natively as P8 with a 256 entry palette.
 // The palette words are 0xAARRGGBB like pddiColour. If red and blue come out swapped on
 // the device, build with -DGXM_PALETTE_TEXTURE_FORMAT=SCE_GXM_TEXTURE_FORMAT_P8_ABGR.
@@ -927,6 +938,8 @@ void gxmTexture::Unlock(int mipLevel)
     if(lockTemp == NULL)
         return;
 
+    TEX_TIMER_START();
+
     if(mipLevel == 0 && swizzled)
     {
         if(lock.format == PDDI_PIXEL_PAL8)
@@ -939,6 +952,7 @@ void gxmTexture::Unlock(int mipLevel)
             lockTemp = NULL;
             if(nPalette > 0)
                 BuildPaletteMips();
+            TEX_TIMER_END("Texture: P8 swizzle+mips");
             return;
         }
         UploadChain((const uint8_t*)lockTemp, NULL, 0, 0);
@@ -955,6 +969,7 @@ void gxmTexture::Unlock(int mipLevel)
 
     radMemoryFreeAligned(lockTemp);
     lockTemp = NULL;
+    TEX_TIMER_END("Texture: swizzle+mips");
 }
 
 void gxmTexture::ApplySamplerState(SceGxmTextureFilter mag, SceGxmTextureFilter min,
@@ -1046,7 +1061,11 @@ void gxmTexture::SetPalette(int nEntries, pddiColour* palette)
     nPalette = nEntries;
 
     // P8 mip levels are chosen from the palette colours, so build them now
-    BuildPaletteMips();
+    {
+        TEX_TIMER_START();
+        BuildPaletteMips();
+        TEX_TIMER_END("Texture: P8 mips (palette)");
+    }
 }
 
 int gxmTexture::GetPalette(pddiColour* palette)

@@ -94,6 +94,7 @@ set(SRR2_SOURCES
 	"data/PersistentWorldManager.cpp"
 	"data/savegameinfo.cpp"
 	"debug/debuginfo.cpp"
+	"debug/vitaprof.cpp"
 	"debug/profiler.cpp"
 	"debug/section.cpp"
 	"events/eventlistener.cpp"

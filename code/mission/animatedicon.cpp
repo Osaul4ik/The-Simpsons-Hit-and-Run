@@ -291,7 +291,7 @@ void AnimatedIcon::Update( unsigned int elapsedMilliseconds )
 
         if ( mAnimIcon.multiController )
         {
-            BEGIN_PROFILE( mAnimIcon.multiController->GetName() );
+            BEGIN_PROFILE( "AnimatedIcon" );
             //This allows me to ignore the extra updates caused by being part of 
             //a substep.
             unsigned int frame = GetGame()->GetFrameCount();
@@ -320,7 +320,7 @@ void AnimatedIcon::Update( unsigned int elapsedMilliseconds )
                     ShouldRender( false );
                 }
             }
-            END_PROFILE( mAnimIcon.multiController->GetName() );
+            END_PROFILE( "AnimatedIcon" );
         }
         
         if ( mAnimIcon.shadowController != NULL )

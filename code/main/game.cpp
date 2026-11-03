@@ -661,6 +661,7 @@ void Game::Run()
                                 (unsigned)( renderUs / nFrames / 1000 ), (unsigned)( ( renderUs / nFrames / 100 ) % 10 ),
                                 (unsigned)( servicesUs / nFrames / 1000 ), (unsigned)( ( servicesUs / nFrames / 100 ) % 10 ),
                                 (unsigned)( loaderUs / nFrames / 1000 ), (unsigned)( ( loaderUs / nFrames / 100 ) % 10 ) );
+                vitaProfReport( nFrames );
                 sumUs = 0; worstUs = 0; nFrames = 0; nOver20 = 0; nOver40 = 0;
                 flowUs = 0; renderUs = 0; servicesUs = 0; loaderUs = 0;
             }

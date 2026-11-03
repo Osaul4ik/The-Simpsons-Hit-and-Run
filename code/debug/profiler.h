@@ -41,8 +41,14 @@ template<class T> class HashTable;
     #define CREATE_PROFILER()     
     #define DESTROY_PROFILER()    
 
-    #define BEGIN_PROFILE(string)
-    #define END_PROFILE(string)
+    #if defined( RAD_VITA ) && defined( RAD_LOG )
+        #include <debug/vitaprof.h>
+        #define BEGIN_PROFILE(string)   vitaProfBegin(string);
+        #define END_PROFILE(string)     vitaProfEnd(string);
+    #else
+        #define BEGIN_PROFILE(string)
+        #define END_PROFILE(string)
+    #endif
 
     #define BEGIN_PROFILER_FRAME()
     #define END_PROFILER_FRAME()
