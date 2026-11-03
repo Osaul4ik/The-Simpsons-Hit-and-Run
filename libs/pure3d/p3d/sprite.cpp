@@ -14,6 +14,7 @@
 #include <constants/chunkids.hpp>
 #include <p3d/shader.hpp>
 #include <p3d/targa.hpp>
+#include <stdio.h>
 
 static const int IMAGE_VERSION = 14000;
 
@@ -45,26 +46,45 @@ struct tRect
     int width;
 };
 
-#ifdef RAD_VITA
-// What each sprite is made of, for the broken 2D pictures. Only with log=1, and only the first ones.
-static void VitaLogSprite(const char* kind, const char* name, int w, int h, int depth, int alpha, int polys, tTexture** textures)
+#if defined( RAD_VITA ) && defined( RAD_GXM )
+#include <psp2/gxm.h>
+#include <pddi/gxm/texture.hpp>
+// For the broken 2D pictures, only with log=1. A line for each sprite that is loaded, once per name.
+// If the memory of a tile changes after that, something else overwrote it: that gets a line too.
+void tSprite::VitaLogLoaded()
 {
-    static int logged = 0;
-    if( logged >= 200 )
+    if( !g_radLogEnabled )
     {
         return;
     }
-    logged++;
-    rReleasePrintf( "[sprite] %s %s %dx%d depth=%d alpha=%d tiles=%d:", kind, name ? name : "?", w, h, depth, alpha, polys );
-    for( int i = 0; i < polys && i < 6; i++ )
+    vitaPixelSamples = new unsigned[ nPolys ];
+    char text[ 256 ];
+    int used = 0;
+    for( int i = 0; i < nPolys; i++ )
     {
-        pddiTexture* t = textures[ i ] ? textures[ i ]->GetTexture() : NULL;
-        if( t )
+        gxmTexture* t = (gxmTexture*)textures[ i ]->GetTexture();
+        vitaPixelSamples[ i ] = t->PixelSample();
+        if( i < 6 )
         {
-            rReleasePrintf( " %dx%d/f%d", t->GetWidth(), t->GetHeight(), (int)t->GetPixelFormat() );
+            used += snprintf( text + used, sizeof( text ) - used, " %dx%d/f%d", t->GetWidth(), t->GetHeight(), (int)t->GetPixelFormat() );
         }
     }
-    rReleasePrintf( "\n" );
+    text[ used ] = 0;
+    static radInt64 seen[ 512 ];
+    static int numSeen = 0;
+    const radInt64 uid = (radInt64)GetUID();
+    for( int i = 0; i < numSeen; i++ )
+    {
+        if( seen[ i ] == uid )
+        {
+            return;
+        }
+    }
+    if( numSeen < 512 )
+    {
+        seen[ numSeen++ ] = uid;
+        rReleasePrintf( "[sprite] %s %dx%d tiles=%d:%s\n", GetNameDangerous(), width, height, nPolys, text );
+    }
 }
 #endif
 
@@ -109,10 +129,6 @@ tSprite::tSprite(tImage* image, tShader* mat, int border, int nx, int ny, tImage
     width = image->GetWidth();
 
     BuildSections(image, conv);
-#ifdef RAD_VITA
-    VitaLogSprite( "image", image->GetNameDangerous(), width, height, image->GetDepth(), image->GetAlphaDepth(), nPolys, textures );
-#endif
-
     SetColour(tColour(255,255,255));
 }
 
@@ -190,16 +206,15 @@ tSprite::tSprite(tTexture** images, int w, int h, int count, tShader* mat, int b
 
     P3DASSERT(index == count);
 
-#ifdef RAD_VITA
-    VitaLogSprite( "textures", images[0] ? images[0]->GetNameDangerous() : NULL, width, height, 0, 0, nPolys, textures );
-#endif
-
     SetColour(tColour(255,255,255));
 
 }
 
 tSprite::~tSprite()
 {
+#ifdef RAD_VITA
+    delete[] vitaPixelSamples;
+#endif
     Shader->Release();
 
     for(int i = 0; i < nPolys; i++)
@@ -630,6 +645,21 @@ void tSprite::SetColour(tColour c)
 
 void tSprite::Display()
 {
+#if defined( RAD_VITA ) && defined( RAD_GXM )
+    if( vitaPixelSamples && !vitaChangeLogged && ( vitaDraws++ & 31 ) == 0 )
+    {
+        for( int i = 0; i < nPolys; i++ )
+        {
+            gxmTexture* t = (gxmTexture*)textures[ i ]->GetTexture();
+            if( t->PixelSample() != vitaPixelSamples[ i ] )
+            {
+                vitaChangeLogged = true;
+                rReleasePrintf( "[sprite] CHANGED after load: %s tile %d of %d, %dx%d\n", GetNameDangerous(), i, nPolys, t->GetWidth(), t->GetHeight() );
+                break;
+            }
+        }
+    }
+#endif
     for(int i = 0; i < nPolys; i++)
     {
 //      if(tDrawable2D::RectClip(scratch,uv,colours))
@@ -730,6 +760,9 @@ tEntity* tSpriteLoader::LoadObject(tChunkFile* f, tEntityStore* store)
         tShader* mat = p3d::find<tShader>(store, shader);
         tSprite* sprite = new tSprite(image, mat, 1, nativeX, nativeY, converter);
         sprite->SetName(name);
+#if defined( RAD_VITA ) && defined( RAD_GXM )
+        sprite->VitaLogLoaded();
+#endif
 
         image->Release();
         return sprite;
@@ -739,6 +772,9 @@ tEntity* tSpriteLoader::LoadObject(tChunkFile* f, tEntityStore* store)
          tShader* mat = p3d::find<tShader>(store, shader);
          tSprite* sprite = new tSprite(images, imageWidth, imageHeight, imageCount, mat, 1, nativeX, nativeY, converter);
          sprite->SetName(name);
+#if defined( RAD_VITA ) && defined( RAD_GXM )
+         sprite->VitaLogLoaded();
+#endif
 
          // don't delete the textures any more, cause we use them right off the bat.
          /*for (int i=0; i < imageCount; i++)

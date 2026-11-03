@@ -45,6 +45,18 @@ public:
 
     // Number of mip levels that currently hold valid data (1 = base level only).
     int GetMipCount(void) const { return validMips; }
+    // A sample of the pixels of level 0, to see whether the memory of a texture changed.
+    unsigned PixelSample(void) const
+    {
+        if(bits == NULL)
+            return 0;
+        const unsigned* words = (const unsigned*)bits;
+        const int count = (int)( ( (size_t)xSize * ySize * ( lock.depth / 8 ) ) / 4 );
+        unsigned sum = 0;
+        for(int i = 0; i < count; i += 61)
+            sum = ( sum * 31 ) + words[ i ];
+        return sum;
+    }
 
     // Sets filtering / addressing / mip state on the GXM texture, but only the parts that
     // differ from what was set last time (the five-plus sceGxmTextureSet* calls per material

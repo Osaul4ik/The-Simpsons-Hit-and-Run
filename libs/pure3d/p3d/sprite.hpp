@@ -77,6 +77,14 @@ protected:
     int nPolys;
     sprVertex* polys;
     tTexture** textures;
+#ifdef RAD_VITA
+    unsigned* vitaPixelSamples = nullptr;
+    unsigned vitaDraws = 0;
+    bool vitaChangeLogged = false;
+public:
+    void VitaLogLoaded();
+protected:
+#endif
 
     tShader* Shader;
 
