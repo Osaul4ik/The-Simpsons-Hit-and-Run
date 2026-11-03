@@ -8,15 +8,41 @@
 #include <pddi/gxm/material.hpp>
 #include <p3d/file.hpp>
 #include <radmemory.hpp>
+#include <arm_neon.h>
 
 #include <string>
 #include <vector>
 #include <SDL.h>
 
-static inline void UniformColour(void* buffer, const SceGxmProgramParameter* param, pddiColour c)
+// sceGxmSetUniformDataF is an imported function that looks at the parameter's category and type
+// for every call, and a lit draw makes about 20 of them. A float parameter's data simply lives
+// resourceIndex dwords into the default uniform buffer, so write it directly (parameters of any
+// other type or buffer, which the shaders here do not have, still go through GXM).
+enum { DEFAULT_UNIFORM_CONTAINER = 14 };   // SCE_GXM_DEFAULT_UNIFORM_BUFFER_CONTAINER_INDEX, not in the vitasdk headers
+
+static int FastUniformOffset(const SceGxmProgramParameter* param)
 {
-    float colour[] = { float(c.Red()) / 255, float(c.Green()) / 255, float(c.Blue()) / 255, float(c.Alpha()) / 255 };
-    sceGxmSetUniformDataF(buffer, param, 0, 4, colour);
+    if(param == NULL ||
+       sceGxmProgramParameterGetCategory(param) != SCE_GXM_PARAMETER_CATEGORY_UNIFORM ||
+       sceGxmProgramParameterGetType(param) != SCE_GXM_PARAMETER_TYPE_F32 ||
+       sceGxmProgramParameterGetContainerIndex(param) != DEFAULT_UNIFORM_CONTAINER)
+        return -1;
+    return (int)sceGxmProgramParameterGetResourceIndex(param) * 4;
+}
+
+static inline void UniformFloats(void* buffer, const SceGxmProgramParameter* param, int offset, unsigned count, const float* data)
+{
+    if(offset >= 0)
+        memcpy((char*)buffer + offset, data, count * sizeof(float));
+    else if(param)
+        sceGxmSetUniformDataF(buffer, param, 0, count, data);
+}
+
+static inline void UniformColour(void* buffer, const SceGxmProgramParameter* param, int offset, pddiColour c)
+{
+    const float scale = 1.0f / 255.0f;
+    const float colour[] = { c.Red() * scale, c.Green() * scale, c.Blue() * scale, c.Alpha() * scale };
+    UniformFloats(buffer, param, offset, 4, colour);
 }
 
 gxmProgram::gxmProgram(SceGxmShaderPatcher* patcher, tFile* gxp)
@@ -28,6 +54,21 @@ gxmProgram::gxmProgram(SceGxmShaderPatcher* patcher, tFile* gxp)
     program = (SceGxmProgram*)radMemoryAlloc(radMemoryGetCurrentAllocator(), gxp->GetSize());
     gxp->GetData(program, gxp->GetSize());
     gxp->Release();
+    Init(patcher);
+}
+
+gxmProgram::gxmProgram(SceGxmShaderPatcher* patcher, const void* gxp, unsigned size)
+    : program()
+    , shaderPatcher(patcher)
+    , shaderCache()
+{
+    program = (SceGxmProgram*)radMemoryAlloc(radMemoryGetCurrentAllocator(), size);
+    memcpy(program, gxp, size);
+    Init(patcher);
+}
+
+void gxmProgram::Init(SceGxmShaderPatcher* patcher)
+{
     CHK_GXM(sceGxmProgramCheck(program));
     type = sceGxmProgramGetType(program);
 
@@ -55,6 +96,24 @@ gxmProgram::gxmProgram(SceGxmShaderPatcher* patcher, tFile* gxp)
     normal = sceGxmProgramFindParameterByName(program, "normal");
     texcoord = sceGxmProgramFindParameterByName(program, "texcoord");
     color = sceGxmProgramFindParameterByName(program, "color");
+    weights = sceGxmProgramFindParameterByName(program, "weights");
+    indices = sceGxmProgramFindParameterByName(program, "indices");
+
+    bonesOffset = FastUniformOffset(sceGxmProgramFindParameterByName(program, "bones"));
+    projectionOffset = FastUniformOffset(projection);
+    modelviewOffset = FastUniformOffset(modelview);
+    normalmatrixOffset = FastUniformOffset(normalmatrix);
+    acsOffset = FastUniformOffset(acs);
+    acmOffset = FastUniformOffset(acm);
+    dcmOffset = FastUniformOffset(dcm);
+    scmOffset = FastUniformOffset(scm);
+    ecmOffset = FastUniformOffset(ecm);
+    for(int i = 0; i < PDDI_MAX_LIGHTS; i++)
+    {
+        lightOffsets[i].position = FastUniformOffset(lights[i].position);
+        lightOffsets[i].colour = FastUniformOffset(lights[i].colour);
+        lightOffsets[i].attenuation = FastUniformOffset(lights[i].attenuation);
+    }
 
     CHK_GXM(sceGxmShaderPatcherRegisterProgram(patcher, program, &patcherId));
 }
@@ -83,14 +142,12 @@ gxmProgram::~gxmProgram()
 
 void gxmProgram::SetProjectionMatrix(void* buffer, const pddiMatrix* matrix)
 {
-    if(projection)
-        sceGxmSetUniformDataF(buffer, projection, 0, 16, matrix->m[0]);
+    UniformFloats(buffer, projection, projectionOffset, 16, matrix->m[0]);
 }
 
 void gxmProgram::SetModelViewMatrix(void* buffer, const pddiMatrix* matrix, bool needNormalMatrix)
 {
-    if(modelview != NULL)
-        sceGxmSetUniformDataF(buffer, modelview, 0, 16, matrix->m[0]);
+    UniformFloats(buffer, modelview, modelviewOffset, 16, matrix->m[0]);
 
     // The normal matrix is only read by the lighting loop. Unlit draws set every light to
     // "disabled" (position.w < 0), so the shader never touches it and the 4x4 inverse can be skipped.
@@ -109,7 +166,7 @@ void gxmProgram::SetModelViewMatrix(void* buffer, const pddiMatrix* matrix, bool
             cachedNormal.Transpose();
             cacheValid = true;
         }
-        sceGxmSetUniformDataF(buffer, normalmatrix, 0, 16, cachedNormal.m[0]);
+        UniformFloats(buffer, normalmatrix, normalmatrixOffset, 16, cachedNormal.m[0]);
     }
 }
 
@@ -117,17 +174,17 @@ void gxmProgram::SetTextureEnvironment(void* buffer, const gxmTextureEnv* texEnv
 {
     if(texEnv && texEnv->lit)
     {
-        UniformColour(buffer, acm, texEnv->ambient);
-        UniformColour(buffer, ecm, texEnv->emissive);
-        UniformColour(buffer, dcm, texEnv->diffuse);
-        UniformColour(buffer, scm, texEnv->specular);
+        UniformColour(buffer, acm, acmOffset, texEnv->ambient);
+        UniformColour(buffer, ecm, ecmOffset, texEnv->emissive);
+        UniformColour(buffer, dcm, dcmOffset, texEnv->diffuse);
+        UniformColour(buffer, scm, scmOffset, texEnv->specular);
     }
     else
     {
-        UniformColour(buffer, acm, pddiColour(-1));
-        UniformColour(buffer, ecm, pddiColour(-1));
-        UniformColour(buffer, dcm, pddiColour(-1));
-        UniformColour(buffer, scm, pddiColour(-1));
+        UniformColour(buffer, acm, acmOffset, pddiColour(-1));
+        UniformColour(buffer, ecm, ecmOffset, pddiColour(-1));
+        UniformColour(buffer, dcm, dcmOffset, pddiColour(-1));
+        UniformColour(buffer, scm, scmOffset, pddiColour(-1));
     }
 }
 
@@ -180,15 +237,15 @@ void gxmProgram::SetLightValues( void* buffer, int handle, const float dir[4], p
     if(handle >= PDDI_MAX_LIGHTS)
         return;
 
-    sceGxmSetUniformDataF(buffer, lights[handle].position, 0, 4, dir);
+    UniformFloats(buffer, lights[handle].position, lightOffsets[handle].position, 4, dir);
 
     // A disabled light (position.w < 0) is skipped by the shader before its colour and
     // attenuation are read, so those uniforms are only written for lights that contribute.
     if(dir[3] < 0.0f)
         return;
 
-    UniformColour(buffer, lights[handle].colour, colour);
-    sceGxmSetUniformDataF(buffer, lights[handle].attenuation, 0, 4, attenuation);
+    UniformColour(buffer, lights[handle].colour, lightOffsets[handle].colour, colour);
+    UniformFloats(buffer, lights[handle].attenuation, lightOffsets[handle].attenuation, 4, attenuation);
 }
 
 void gxmProgram::SetLightState( void* buffer, int handle, const pddiLight* lightState, const pddiVector* viewPosition, const pddiVector* viewDirection, bool lit, float shininess )
@@ -203,16 +260,33 @@ void gxmProgram::SetLightState( void* buffer, int handle, const pddiLight* light
 
 void gxmProgram::SetMaterialColours( void* buffer, pddiColour ambient, pddiColour emissive, pddiColour diffuse, pddiColour specular )
 {
-    UniformColour(buffer, acm, ambient);
-    UniformColour(buffer, ecm, emissive);
-    UniformColour(buffer, dcm, diffuse);
-    UniformColour(buffer, scm, specular);
+    UniformColour(buffer, acm, acmOffset, ambient);
+    UniformColour(buffer, ecm, ecmOffset, emissive);
+    UniformColour(buffer, dcm, dcmOffset, diffuse);
+    UniformColour(buffer, scm, scmOffset, specular);
+}
+
+void gxmProgram::SetBones(void* buffer, const pddiMatrix* const* palette, unsigned count)
+{
+    if(bonesOffset < 0)
+        return;
+    // Column i of the (row vector) matrix goes into a float4, so the shader computes component i
+    // of the transformed position with dot(float4(p, 1), column). The last column (0,0,0,1) is
+    // not needed.
+    float* out = (float*)((char*)buffer + bonesOffset);
+    for(unsigned i = 0; i < count; i++)
+    {
+        const float32x4x4_t m = vld4q_f32(palette[i]->m[0]);
+        vst1q_f32(out, m.val[0]);
+        vst1q_f32(out + 4, m.val[1]);
+        vst1q_f32(out + 8, m.val[2]);
+        out += 12;
+    }
 }
 
 void gxmProgram::SetAmbientLight(void* buffer, pddiColour ambient)
 {
-    if(acs)
-        UniformColour(buffer, acs, ambient);
+    UniformColour(buffer, acs, acsOffset, ambient);
 }
 
 
@@ -227,7 +301,7 @@ SceGxmVertexProgram* gxmProgram::PatchVertexShader(unsigned int vertexType, uint
     if(vert)
         return vert;
 
-    SceGxmVertexAttribute vertexAttributes[4];
+    SceGxmVertexAttribute vertexAttributes[6];
     SceGxmVertexStream vertexStreams[2];
     vertexAttributes[attr].streamIndex = 0;
     vertexAttributes[attr].offset = offset;
@@ -237,17 +311,22 @@ SceGxmVertexProgram* gxmProgram::PatchVertexShader(unsigned int vertexType, uint
     attr++;
     offset += 12;
 
+    // Shader variants do not read everything (the unlit one has no normal). The vertex layout
+    // stays the same, a parameter the program does not have just gets no attribute.
     if(vertexType & PDDI_V_NORMAL)
     {
-        vertexAttributes[attr].streamIndex = 0;
-        vertexAttributes[attr].offset = offset;
-        vertexAttributes[attr].format = SCE_GXM_ATTRIBUTE_FORMAT_F32;
-        vertexAttributes[attr].componentCount = 3;
-        vertexAttributes[attr].regIndex = sceGxmProgramParameterGetResourceIndex(normal);
-        attr++;
+        if(normal)
+        {
+            vertexAttributes[attr].streamIndex = 0;
+            vertexAttributes[attr].offset = offset;
+            vertexAttributes[attr].format = SCE_GXM_ATTRIBUTE_FORMAT_F32;
+            vertexAttributes[attr].componentCount = 3;
+            vertexAttributes[attr].regIndex = sceGxmProgramParameterGetResourceIndex(normal);
+            attr++;
+        }
         offset += 12;
     }
-    else
+    else if(normal)
     {
         vertexAttributes[attr].streamIndex = 1;
         vertexAttributes[attr].offset = 0;
@@ -295,6 +374,25 @@ SceGxmVertexProgram* gxmProgram::PatchVertexShader(unsigned int vertexType, uint
         vertexAttributes[attr].componentCount = 4;
         vertexAttributes[attr].regIndex = sceGxmProgramParameterGetResourceIndex(color);
         attr++;
+    }
+
+    // skinned buffers only (gxmPrimBuffer: weights and indices follow the other attributes)
+    if(weights && indices)
+    {
+        vertexAttributes[attr].streamIndex = 0;
+        vertexAttributes[attr].offset = offset;
+        vertexAttributes[attr].format = SCE_GXM_ATTRIBUTE_FORMAT_F32;
+        vertexAttributes[attr].componentCount = 3;
+        vertexAttributes[attr].regIndex = sceGxmProgramParameterGetResourceIndex(weights);
+        attr++;
+        offset += 12;
+        vertexAttributes[attr].streamIndex = 0;
+        vertexAttributes[attr].offset = offset;
+        vertexAttributes[attr].format = SCE_GXM_ATTRIBUTE_FORMAT_U8;
+        vertexAttributes[attr].componentCount = 4;
+        vertexAttributes[attr].regIndex = sceGxmProgramParameterGetResourceIndex(indices);
+        attr++;
+        offset += 4;
     }
 
     vertexStreams[strm].stride = stride;

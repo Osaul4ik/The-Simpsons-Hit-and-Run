@@ -13,10 +13,12 @@
 #include <microprofile.h>
 #include <SDL.h>
 
-// Blend between mip levels for every filter mode instead of only PDDI_FILTER_MIPMAP_TRILINEAR
-// (smoother transitions, costs a second texture fetch).
+// Blend between mip levels for every filtered mode instead of only PDDI_FILTER_MIPMAP_TRILINEAR.
+// The PC assets mostly ask for plain bilinear; picking the nearest level then draws a hard line
+// across the road where the level changes. Build with -DRAD_GXM_TRILINEAR_ALL=0 to go back to
+// nearest-level selection (costs a second texture fetch per textured pixel when enabled).
 #ifndef RAD_GXM_TRILINEAR_ALL
-#define RAD_GXM_TRILINEAR_ALL 0
+#define RAD_GXM_TRILINEAR_ALL 1
 #endif
 
 pddiShadeColourTable gxmMat::colourTable[] = 
@@ -113,6 +115,7 @@ gxmMat::gxmMat(gxmContext* c)
     program = nullptr;
     shader = nullptr;
     appliedContextWriteMask = PDDI_WRITE_ALL;
+    appliedNoSpecular = false;
 
     for(int i = 0; i < gxmMaxPasses; i++)
     {
@@ -329,21 +332,28 @@ void gxmMat::SelectFragmentShader(int contextWriteMask)
     appliedContextWriteMask = contextWriteMask;
 }
 
+void gxmMat::SelectProgram()
+{
+    const int i = 0;
+    if(program)
+        program->Release();
+    program = context->GetFragmentProgram(&texEnv[i]);
+    program->AddRef();
+    appliedNoSpecular = context->GetVertexVariant(&texEnv[i]) != gxmContext::VARIANT_FULL;
+
+    SelectFragmentShader(context->GetColourWriteMask());
+    valid = true;
+}
+
 void gxmMat::SetDevPass(unsigned pass)
 {
     int i = 0;
     SceGxmContext* gxm = context->GetDisplay()->GetGXMContext();
     const int contextWriteMask = context->GetColourWriteMask();
 
-    if(!valid)
+    if(!valid || appliedNoSpecular != (context->GetVertexVariant(&texEnv[i]) != gxmContext::VARIANT_FULL))
     {
-        if(program)
-            program->Release();
-        program = context->GetFragmentProgram(&texEnv[i]);
-        program->AddRef();
-
-        SelectFragmentShader(contextWriteMask);
-        valid = true;
+        SelectProgram();
     }
     else if(contextWriteMask != appliedContextWriteMask)
     {
@@ -357,13 +367,12 @@ void gxmMat::SetDevPass(unsigned pass)
         SceGxmTexture* texture = texEnv[i].texture->GetGXMTexture();
 
         // Textures with a mip chain: PDDI_FILTER_NONE (UI, splash, pixel exact drawing) always
-        // samples the base level. Everything else uses the chain, picking the nearest level
-        // (blending between levels only for the trilinear mode, or everywhere with
-        // -DRAD_GXM_TRILINEAR_ALL=1; costs a second texture fetch). Only state that changed
-        // since this texture was last drawn is written (see gxmTexture::ApplySamplerState).
+        // samples the base level. Everything else uses the chain and blends between levels
+        // (see RAD_GXM_TRILINEAR_ALL). Only state that changed since this texture was last
+        // drawn is written (see gxmTexture::ApplySamplerState).
         const pddiFilterMode fm = texEnv[i].filterMode;
         const int storedMips = texEnv[i].texture->GetMipCount();
-        const bool blendLevels = RAD_GXM_TRILINEAR_ALL || fm == PDDI_FILTER_MIPMAP_TRILINEAR;
+        const bool blendLevels = fm != PDDI_FILTER_NONE && (RAD_GXM_TRILINEAR_ALL || fm == PDDI_FILTER_MIPMAP_TRILINEAR);
         texEnv[i].texture->ApplySamplerState(filterMagTable[fm], filterMinTable[fm],
                                              uvTable[texEnv[i].uvMode], uvTable[texEnv[i].uvMode],
                                              storedMips > 1 ? (fm == PDDI_FILTER_NONE ? 1 : storedMips) : 0,
@@ -380,9 +389,16 @@ void gxmMat::PreRender()
     if(program)
     {
         // SetMaterial() only calls SetDevPass() when the material changes, but PreRender() runs
-        // for every draw: pick up a colour write mask change made while this material stays current.
+        // for every draw: pick up a colour write mask change made while this material stays current,
+        // and a lighting/specular change that needs the other kind of fragment program (its inputs
+        // have to match the outputs of the vertex program SetTextureEnvironment() selects).
         const int contextWriteMask = context->GetColourWriteMask();
-        if(contextWriteMask != appliedContextWriteMask)
+        if(appliedNoSpecular != (context->GetVertexVariant(&texEnv[i]) != gxmContext::VARIANT_FULL))
+        {
+            SelectProgram();
+            sceGxmSetFragmentProgram(context->GetDisplay()->GetGXMContext(), shader);
+        }
+        else if(contextWriteMask != appliedContextWriteMask)
         {
             SelectFragmentShader(contextWriteMask);
             sceGxmSetFragmentProgram(context->GetDisplay()->GetGXMContext(), shader);

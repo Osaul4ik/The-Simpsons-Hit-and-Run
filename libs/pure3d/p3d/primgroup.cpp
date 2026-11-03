@@ -3,6 +3,10 @@
 //=============================================================================
 
 
+#ifdef RAD_VITA
+#include <stdlib.h>
+#include <p3d/skin_neon.hpp>
+#endif
 #include <p3d/primgroup.hpp>
 #include <p3d/utility.hpp>
 #include <p3d/shader.hpp>
@@ -512,6 +516,44 @@ void tPrimGroupSkinnedPC::Display(void)
 	
     int count = mVertexCount;
     SkinVertex *verts = mVertices;
+
+#ifdef RAD_VITA
+    {
+        // Blend with NEON into cached memory, then hand the buffer (uncached GPU memory) whole
+        // blocks instead of three virtual calls with single stores per vertex.
+        static float* s_scratch = NULL;
+        static int s_scratchVertices = 0;
+        if(count > s_scratchVertices)
+        {
+            free(s_scratch);
+            s_scratch = (float*)malloc(sizeof(float) * 6 * count);
+            s_scratchVertices = s_scratch ? count : 0;
+        }
+        if(s_scratch)
+        {
+            const bool withNormals = (mVertexFormat & PDDI_V_NORMAL) != 0;
+            p3dSkinVerticesNeon(verts, count, (const rmt::Matrix* const*)matrixPalette, s_scratch, withNormals);
+            stream = mBuffer->Lock();
+            const bool written = stream->WriteSkinnedVertices(s_scratch, count, withNormals);
+            if(!written)
+            {
+                const float* p = s_scratch;
+                for(int i = 0; i < count; i++)
+                {
+                    if(withNormals)
+                    {
+                        stream->Normal(p[3], p[4], p[5]);
+                    }
+                    stream->Position(p[0], p[1], p[2]);
+                    p += withNormals ? 6 : 3;
+                }
+            }
+            mBuffer->Unlock(stream);
+            p3d::pddi->DrawPrimBuffer(mShader->GetShader(), mBuffer);
+            return;
+        }
+    }
+#endif
 
 	if(mVertexFormat & PDDI_V_NORMAL){
 
@@ -1573,6 +1615,16 @@ tPrimGroup*  tPrimGroupLoader::Load(tChunkFile *f, tEntityStore *store, rmt::Mat
         return LoadStreamed(f, store, bones);
     }
 */
+#ifdef RAD_GXM
+    if( bones && hwSkin )
+    {
+        // Same vertex data as the software path, but the blending happens in the vertex shader.
+        // A mesh without weight/index chunks still needs the attributes (the buffer defaults to
+        // 100% of the first palette entry, the same as LoadPCSkin).
+        mVertexFormat = ( mVertexFormat | PDDI_V_WEIGHTS | PDDI_V_INDICES ) & ~( PDDI_V_BINORMAL | PDDI_V_TANGENT );
+        optimise = true;    // the streamed path would blend on the CPU, without NEON
+    }
+#endif
     if( bones && !hwSkin )
     {
         #ifdef RAD_PS2

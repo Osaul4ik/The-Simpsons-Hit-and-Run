@@ -50,6 +50,15 @@
 #define RAD_GXM_TEXTURE_MIPS 1
 #endif
 
+// Added to the level of detail of textures with a mip chain, in 1/8 level steps (GXM stores it as
+// 31 + bias, valid range -31..32). There is no anisotropic filtering, so the sharper level is chosen
+// from the compressed axis and a road seen at a low angle would go blurry right in front of the
+// camera without this. Closer to 0: less shimmering, more blur. -8: base level until 2:1 minification.
+#ifndef RAD_GXM_TEXTURE_LOD_BIAS_EIGHTHS
+#define RAD_GXM_TEXTURE_LOD_BIAS_EIGHTHS -8
+#endif
+static_assert(RAD_GXM_TEXTURE_LOD_BIAS_EIGHTHS >= -31 && RAD_GXM_TEXTURE_LOD_BIAS_EIGHTHS <= 32, "GXM LOD bias out of range");
+
 // Textures whose smaller side is below this many pixels get no mip chain: they hardly ever
 // shimmer and the +33% memory is better spent elsewhere. Must be a power of two >= 16.
 #ifndef RAD_GXM_TEXTURE_MIN_MIP_SIZE
@@ -209,6 +218,38 @@ static void Downsample32(const uint8_t* src, uint8_t* dst, int w, int h)
     }
 }
 
+// For textures with real alpha: the colour of (nearly) transparent texels is whatever the artist's
+// tool left there, usually black or magenta. A plain average bleeds it into the visible edge, which
+// gives cutouts a dark or coloured outline at a distance. Colour is weighted by alpha instead.
+static void Downsample32AlphaWeighted(const uint8_t* src, uint8_t* dst, int w, int h)
+{
+    const int dw = rmt::Max(w >> 1, 1), dh = rmt::Max(h >> 1, 1);
+    const int sx = (w > 1) ? 1 : 0, sy = (h > 1) ? 1 : 0;
+    for(int y = 0; y < dh; y++)
+    {
+        const uint8_t* r0 = src + size_t(y * 2) * w * 4;
+        const uint8_t* r1 = src + size_t(y * 2 + sy) * w * 4;
+        uint8_t* out = dst + size_t(y) * dw * 4;
+        for(int x = 0; x < dw; x++)
+        {
+            const uint8_t* p[4] = { r0 + x * 8, r0 + (x * 2 + sx) * 4, r1 + x * 8, r1 + (x * 2 + sx) * 4 };
+            const uint32_t alphaSum = p[0][3] + p[1][3] + p[2][3] + p[3][3];
+            if(alphaSum == 0 || alphaSum == 4 * 255)
+            {
+                // all the same alpha: nothing to weight
+                Box32Pixel(p[0], p[1], p[2], p[3], out + x * 4);
+                continue;
+            }
+            for(int c = 0; c < 3; c++)
+            {
+                const uint32_t sum = p[0][c] * p[0][3] + p[1][c] * p[1][3] + p[2][c] * p[2][3] + p[3][c] * p[3][3];
+                out[x * 4 + c] = (uint8_t)((sum + alphaSum / 2) / alphaSum);
+            }
+            out[x * 4 + 3] = (uint8_t)((alphaSum + 2) >> 2);
+        }
+    }
+}
+
 static inline uint16_t Box565Pixel(uint16_t p0, uint16_t p1, uint16_t p2, uint16_t p3)
 {
     const int r = ((p0 >> 11) & 0x1f) + ((p1 >> 11) & 0x1f) + ((p2 >> 11) & 0x1f) + ((p3 >> 11) & 0x1f);
@@ -324,10 +365,49 @@ static void PreserveAlphaCoverage(uint8_t* px, size_t n, float target)
 }
 #endif
 
-// Palette indices cannot be averaged. Pick, out of each 2x2 block, the texel whose colour is
-// closest to the block average: the result only uses colours the palette really has.
-static void DownsampleP8(const uint8_t* src, uint8_t* dst, int w, int h, const uint32_t* pal)
+// Index of the palette entry closest to an 0xAARRGGBB colour (sum of absolute differences; alpha
+// counts four times, a wrong alpha shows much more than a slightly wrong colour).
+static inline uint8_t NearestPaletteEntry(const uint32_t* pal, int entries, uint32_t colour)
 {
+    const uint8x16_t target = vreinterpretq_u8_u32(vdupq_n_u32(colour));
+    uint32_t bestDist = 0xffffffffu;
+    int best = 0;
+    int i = 0;
+    for(; i + 4 <= entries; i += 4)
+    {
+        const uint8x16_t diff = vabdq_u8(vld1q_u8((const uint8_t*)(pal + i)), target);
+        uint32x4_t sum = vpaddlq_u16(vpaddlq_u8(diff));
+        sum = vmlaq_n_u32(sum, vshrq_n_u32(vreinterpretq_u32_u8(diff), 24), 3);
+        uint32_t d[4];
+        vst1q_u32(d, sum);
+        for(int k = 0; k < 4; k++)
+            if(d[k] < bestDist) { bestDist = d[k]; best = i + k; }
+    }
+    for(; i < entries; i++)
+    {
+        uint32_t dist = 0;
+        for(int c = 0; c < 4; c++)
+        {
+            const int delta = (int)((pal[i] >> (c * 8)) & 0xff) - (int)((colour >> (c * 8)) & 0xff);
+            dist += (uint32_t)(delta < 0 ? -delta : delta) * (c == 3 ? 4 : 1);
+        }
+        if(dist < bestDist) { bestDist = dist; best = i; }
+    }
+    return (uint8_t)best;
+}
+
+// Palette indices cannot be averaged directly: average the colours of each 2x2 block (weighted
+// by alpha, like Downsample32AlphaWeighted) and store the palette entry closest to the result.
+// Just picking one of the four texels turns a mip level into a noisy point sample, which is what
+// made palettized surfaces look grainy. Blocks that round to the same colour share one palette
+// search through a small cache, so this stays cheap enough for level streaming.
+static void DownsampleP8(const uint8_t* src, uint8_t* dst, int w, int h, const uint32_t* pal, int entries)
+{
+    enum { CACHE_BITS = 9, CACHE_SIZE = 1 << CACHE_BITS };
+    uint32_t cacheKey[CACHE_SIZE];
+    uint8_t cacheIndex[CACHE_SIZE];
+    memset(cacheKey, 0xff, sizeof(cacheKey));   // keys have their low bits clear: never all ones
+
     const int dw = rmt::Max(w >> 1, 1), dh = rmt::Max(h >> 1, 1);
     const int sx = (w > 1) ? 1 : 0, sy = (h > 1) ? 1 : 0;
     for(int y = 0; y < dh; y++)
@@ -336,23 +416,34 @@ static void DownsampleP8(const uint8_t* src, uint8_t* dst, int w, int h, const u
         const uint8_t* r1 = src + size_t(y * 2 + sy) * w;
         for(int x = 0; x < dw; x++)
         {
-            const uint8_t idx[4] = { r0[x * 2], r0[x * 2 + sx], r1[x * 2], r1[x * 2 + sx] };
-            int avg[4] = { 0, 0, 0, 0 };
-            for(int k = 0; k < 4; k++)
-                for(int c = 0; c < 4; c++)
-                    avg[c] += (pal[idx[k]] >> (c * 8)) & 0xff;
-            int best = 0, bestDist = 0x7fffffff;
+            const uint8_t i0 = r0[x * 2], i1 = r0[x * 2 + sx], i2 = r1[x * 2], i3 = r1[x * 2 + sx];
+            if(i0 == i1 && i0 == i2 && i0 == i3)
+            {
+                dst[y * dw + x] = i0;
+                continue;
+            }
+            const uint32_t c[4] = { pal[i0], pal[i1], pal[i2], pal[i3] };
+            const uint32_t alphaSum = (c[0] >> 24) + (c[1] >> 24) + (c[2] >> 24) + (c[3] >> 24);
+            uint32_t r = 0, g = 0, b = 0;
             for(int k = 0; k < 4; k++)
             {
-                int dist = 0;
-                for(int c = 0; c < 4; c++)
-                {
-                    const int d = (int)((pal[idx[k]] >> (c * 8)) & 0xff) * 4 - avg[c];
-                    dist += d * d;
-                }
-                if(dist < bestDist) { bestDist = dist; best = k; }
+                const uint32_t weight = alphaSum ? (c[k] >> 24) : 1;
+                r += ((c[k] >> 16) & 0xff) * weight;
+                g += ((c[k] >> 8) & 0xff) * weight;
+                b += (c[k] & 0xff) * weight;
             }
-            dst[y * dw + x] = idx[best];
+            const uint32_t total = alphaSum ? alphaSum : 4;
+            const uint32_t colour = (((alphaSum + 2) >> 2) << 24) | (((r + total / 2) / total) << 16) |
+                                    (((g + total / 2) / total) << 8) | ((b + total / 2) / total);
+
+            const uint32_t key = colour & 0xf8f8f8f8u;
+            const uint32_t slot = (key * 2654435761u) >> (32 - CACHE_BITS);
+            if(cacheKey[slot] != key)
+            {
+                cacheKey[slot] = key;
+                cacheIndex[slot] = NearestPaletteEntry(pal, entries, colour);
+            }
+            dst[y * dw + x] = cacheIndex[slot];
         }
     }
 }
@@ -371,27 +462,42 @@ static void SwizzleLevel(int bytesPerPixel, uint8_t* dst, uint8_t* src, int w, i
 // Writes level 0 (always) and the generated levels >= firstLevel (and < mipCount) into the
 // swizzled texture. Levels are stored back to back, each w*h*bytes, largest first.
 // palette is only used for P8.
-void gxmTexture::UploadChain(const uint8_t* level0, const uint32_t* palette, int firstLevel)
+void gxmTexture::UploadChain(const uint8_t* level0, const uint32_t* palette, int paletteEntries, int firstLevel)
 {
     const int bpp8 = lock.depth / 8;
     const bool p8 = (lock.format == PDDI_PIXEL_PAL8);
     int w = xSize, h = ySize;
     size_t offset = 0;
     const uint8_t* cur = level0;
-    uint8_t* owned = NULL;      // buffer currently held in 'cur' (not level0)
+    uint8_t* scratch = NULL;    // all generated levels, back to back: one allocation per texture
+    uint8_t* next = NULL;       // where the next generated level goes in it
+    bool anyAlpha = false;      // some texel is not fully opaque
     int levelsDone = 0;
 
 #if RAD_GXM_MIP_ALPHA_COVERAGE
     bool cutout = false;
     float coverage = 0.0f;
+#endif
     if(hasAlpha && bpp8 == 4 && mipCount > 1 && firstLevel == 0)
     {
         uint32_t hist[256];
         AlphaHistogram(level0, size_t(xSize) * ySize, hist);
+        anyAlpha = hist[255] != size_t(xSize) * ySize;
+#if RAD_GXM_MIP_ALPHA_COVERAGE
         cutout = IsCutoutAlpha(hist, size_t(xSize) * ySize);
         coverage = AlphaCoverage(hist, size_t(xSize) * ySize);
-    }
 #endif
+    }
+
+    // Scratch memory for levels 1.. (only needed when there is something to generate).
+    if(mipCount > 1 && !(p8 && palette == NULL))
+    {
+        size_t scratchBytes = 0;
+        for(int l = 1; l < mipCount; l++)
+            scratchBytes += size_t(rmt::Max(xSize >> l, 1)) * rmt::Max(ySize >> l, 1) * bpp8;
+        scratch = (uint8_t*)radMemoryAllocAligned(radMemoryGetCurrentAllocator(), scratchBytes, 16);
+        next = scratch;
+    }
 
     for(int l = 0; l < mipCount; l++)
     {
@@ -403,39 +509,35 @@ void gxmTexture::UploadChain(const uint8_t* level0, const uint32_t* palette, int
         offset += size_t(w) * h * bpp8;
 
         // P8 without a palette yet: base level only, the rest is built by BuildPaletteMips()
-        if(l + 1 >= mipCount || (p8 && palette == NULL))
+        // Out of scratch memory: use the levels we have.
+        if(l + 1 >= mipCount || next == NULL)
             break;
 
         const int nw = rmt::Max(w >> 1, 1), nh = rmt::Max(h >> 1, 1);
-        uint8_t* next = (uint8_t*)radMemoryAllocAligned(radMemoryGetCurrentAllocator(), size_t(nw) * nh * bpp8, 16);
-        if(next == NULL)
-        {
-            // out of scratch memory: use the levels we have
-            break;
-        }
         if(p8)
-            DownsampleP8(cur, next, w, h, palette);
+            DownsampleP8(cur, next, w, h, palette, paletteEntries);
         else if(bpp8 == 2)
             Downsample565(cur, next, w, h);
         else
         {
-            Downsample32(cur, next, w, h);
+            if(anyAlpha)
+                Downsample32AlphaWeighted(cur, next, w, h);
+            else
+                Downsample32(cur, next, w, h);
 #if RAD_GXM_MIP_ALPHA_COVERAGE
             if(cutout)
                 PreserveAlphaCoverage(next, size_t(nw) * nh, coverage);
 #endif
         }
 
-        if(owned)
-            radMemoryFreeAligned(owned);
-        owned = next;
         cur = next;
+        next += size_t(nw) * nh * bpp8;
         w = nw;
         h = nh;
     }
 
-    if(owned)
-        radMemoryFreeAligned(owned);
+    if(scratch)
+        radMemoryFreeAligned(scratch);
 
     if(levelsDone < 1)
         levelsDone = 1;
@@ -452,7 +554,7 @@ void gxmTexture::BuildPaletteMips()
 {
     if(pendingLinear == NULL || paletteMem == NULL || nPalette == 0)
         return;
-    UploadChain((const uint8_t*)pendingLinear, paletteMem, 1);
+    UploadChain((const uint8_t*)pendingLinear, paletteMem, nPalette, 1);
     radMemoryFreeAligned(pendingLinear);
     pendingLinear = NULL;
 }
@@ -577,6 +679,8 @@ bool gxmTexture::Create(int x, int y, int bpp, int alphaDepth, int nMip, pddiTex
         if(swizzled)
         {
             CHK_GXM(sceGxmTextureInitSwizzled(&texture, bits, PickPixelFormat(lock.format), xSize, ySize, mipCount));
+            if(mipCount > 1)
+                CHK_GXM(sceGxmTextureSetLodBias(&texture, 31 + RAD_GXM_TEXTURE_LOD_BIAS_EIGHTHS));
             // mips are filled when level 0 is unlocked (P8: when the palette arrives)
             validMips = (palettized && mipCount > 1) ? 1 : mipCount;
             if(validMips != mipCount)
@@ -830,14 +934,14 @@ void gxmTexture::Unlock(int mipLevel)
             // level 0 now; the other levels once the palette is known (immediately if it already is)
             if(pendingLinear)
                 radMemoryFreeAligned(pendingLinear);
-            UploadChain((const uint8_t*)lockTemp, NULL, 0);
+            UploadChain((const uint8_t*)lockTemp, NULL, 0, 0);
             pendingLinear = lockTemp;
             lockTemp = NULL;
             if(nPalette > 0)
                 BuildPaletteMips();
             return;
         }
-        UploadChain((const uint8_t*)lockTemp, NULL, 0);
+        UploadChain((const uint8_t*)lockTemp, NULL, 0, 0);
     }
     else if(mipLevel == 0 && IsDXT(lock.format))
     {

@@ -18,6 +18,10 @@ on:
         description: Write debug output to ux0:data/simpsons/log.txt
         type: boolean
         default: true
+      lto:
+        description: Link time optimization (turn off if the link fails)
+        type: boolean
+        default: true
       heap_mb:
         description: Newlib heap size in MB (the app has 368 MB in extended memory mode; the GXM backend also takes an 80 MB GPU-readable block and nearly all of the 128 MB VRAM)
         type: string
@@ -100,6 +104,7 @@ jobs:
             -DSRR2_REGION=${{ matrix.region }} \
             -DSRR2_LOG=${{ (github.event_name == 'workflow_dispatch' && !inputs.log) && 'OFF' || 'ON' }} \
             -DSRR2_VITA_HEAP_MB=${{ inputs.heap_mb || '192' }} \
+            -DSRR2_LTO=${{ (github.event_name == 'workflow_dispatch' && !inputs.lto) && 'OFF' || 'ON' }} \
             -DSRR2_BUILD_TESTS=OFF
 
       - name: Build

@@ -19,6 +19,7 @@ class gxmProgram : public pddiObject
 {
 public:
     gxmProgram(SceGxmShaderPatcher* patcher, tFile* gxp);
+    gxmProgram(SceGxmShaderPatcher* patcher, const void* gxp, unsigned size);   // keeps its own copy
     ~gxmProgram();
 
     const SceGxmProgram* GetProgram() { return program; }
@@ -38,6 +39,10 @@ public:
     // Same writes SetTextureEnvironment() does, from already computed colours.
     void SetMaterialColours( void* buffer, pddiColour ambient, pddiColour emissive, pddiColour diffuse, pddiColour specular );
 
+    // Hardware skinning: writes a matrix palette (three float4 per matrix) into the uniform buffer.
+    void SetBones( void* buffer, const pddiMatrix* const* palette, unsigned count );
+    bool HasBones() const { return bonesOffset >= 0; }
+
     inline bool SupportsLighting() { return acs != nullptr; }
     inline bool SupportsTextures() { return sampler != nullptr; }
 
@@ -45,6 +50,8 @@ public:
     SceGxmFragmentProgram* PatchFragmentShader(const SceGxmBlendInfo* blendInfo, SceGxmMultisampleMode msaaMode);
 
 protected:
+    void Init(SceGxmShaderPatcher* patcher);
+
     SceGxmProgram* program;
     SceGxmProgramType type;
     SceGxmShaderPatcher* shaderPatcher;
@@ -68,10 +75,20 @@ protected:
     const SceGxmProgramParameter* scm;
     const SceGxmProgramParameter* ecm;
 
+    // Byte offsets of the above in the default uniform buffer, -1 if a write has to go through
+    // sceGxmSetUniformDataF (see FastUniformOffset). This is written for every draw.
+    int projectionOffset, modelviewOffset, normalmatrixOffset, bonesOffset;
+    int acsOffset, acmOffset, dcmOffset, scmOffset, ecmOffset;
+    struct {
+        int position, colour, attenuation;
+    } lightOffsets[PDDI_MAX_LIGHTS];
+
     const SceGxmProgramParameter* position;
     const SceGxmProgramParameter* normal;
     const SceGxmProgramParameter* texcoord;
     const SceGxmProgramParameter* color;
+    const SceGxmProgramParameter* weights;
+    const SceGxmProgramParameter* indices;
 };
 
 #endif

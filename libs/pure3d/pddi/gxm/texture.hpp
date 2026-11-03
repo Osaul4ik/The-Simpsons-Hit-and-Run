@@ -91,7 +91,7 @@ protected:
     void* pendingLinear;// P8 only: level 0 (tight, memory order) kept until the palette arrives
     float statKB;       // what was added to the texture memory stat
 
-    void UploadChain(const uint8_t* level0, const uint32_t* palette, int firstLevel);
+    void UploadChain(const uint8_t* level0, const uint32_t* palette, int paletteEntries, int firstLevel);
     void BuildPaletteMips();
 
     // native 8-bit palettized storage (P8)

@@ -79,9 +79,6 @@ void tPolySkin::Display(tPose* p)
 #else
         boneMatrix[i].MultAligned(skeleton->GetJoint(i)->inverseWorldMatrix, p->GetJoint(i)->worldMatrix);
 #endif
-
-        boneMatrix[i].Mult(skeleton->GetJoint(i)->inverseWorldMatrix, p->GetJoint(i)->worldMatrix);
-
     }
 
     boneMatrix[skeleton->GetNumJoint()].Identity();

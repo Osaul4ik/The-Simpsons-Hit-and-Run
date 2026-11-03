@@ -40,6 +40,10 @@ namespace Scrooby
 class Owner 
 {
     public:
+        // Adds a text at an offset from 'source', with the same style, size, colour and
+        // justification. For items the artists did not put on a page. NULL if not supported.
+        virtual Text* AddTextLike( Text* source, const char* name, int offsetX, int offsetY ) = 0;
+
         virtual Drawable* GetChildDrawable( const unsigned int index ) = 0;
             
         //gets a group object from within the page by hash

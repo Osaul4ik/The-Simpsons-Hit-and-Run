@@ -348,6 +348,9 @@ public:
     void Coord(float x, float y, float z) { Position(x, y, z); }
     PDDI_INTERFACE void Position(float x, float y, float z) PDDI_PURE;
     PDDI_INTERFACE void Normal(float x, float y, float z) PDDI_PURE;
+    // Writes 'count' vertices at once from tightly packed floats (position, then normal if
+    // withNormals). Backends that do not implement it return false; use Position()/Normal() then.
+    PDDI_INTERFACE bool WriteSkinnedVertices(const float* packed, unsigned count, bool withNormals) { return false; }
     PDDI_INTERFACE void Binormal(float x, float y, float z) { };
     PDDI_INTERFACE void Tangent(float x, float y, float z) { };
     PDDI_INTERFACE void Colour(pddiColour colour, int channel = 0) PDDI_PURE;

@@ -173,8 +173,8 @@ tTexture* tTextureLoader::LoadTexture(tChunkFile* f)
     int numMipMaps = f->GetLong();
     numMipMaps = numMipMaps ? numMipMaps - 1 : numMipMaps;
 #ifdef RAD_GXM
-    // The GXM backend stores only the base level (mip filtering is never enabled), so
-    // don't decode the mip chunks at all. EndChunk skips them.
+    // The GXM backend generates its mip chains from the base level (gxmTexture::UploadChain),
+    // so don't decode the mip chunks at all. EndChunk skips them.
     numMipMaps = 0;
 #endif
     pddiTextureType textureType = (pddiTextureType)f->GetLong();

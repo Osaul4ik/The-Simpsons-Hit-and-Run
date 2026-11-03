@@ -157,6 +157,21 @@ FeText* FeOwner::AddText( const tName& name, int x, int y )
 }
 
 
+Scrooby::Text* FeOwner::AddTextLike( Scrooby::Text* source, const char* name, int offsetX, int offsetY )
+{
+    FeText* from = dynamic_cast<FeText*>( source );
+    if( from == NULL )
+    {
+        return NULL;
+    }
+    int x = 0, y = 0;
+    from->GetOriginPosition( x, y );
+    FeText* s = AddText( name, x + offsetX, y + offsetY );
+    s->CopyStyleFrom( *from );
+    s->AddHardCodedString( "" );
+    return s;
+}
+
 FeSprite* FeOwner::AddSprite( const tName& name, int x, int y)
 {
     FeSprite* s= new FeSprite( name, x, y );

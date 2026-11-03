@@ -104,6 +104,12 @@ public :
     // utility
     int GetMaxTextureDimension(void);
 
+    // Vertex program kinds. FULL is the original shader; the others leave out what the material
+    // cannot show (specular with a black specular colour, all lighting when unlit), and go with a
+    // fragment program without the specular input.
+    enum { VARIANT_FULL, VARIANT_DIFFUSE, VARIANT_UNLIT, NUM_VERTEX_VARIANTS };
+    int GetVertexVariant(const gxmTextureEnv* texEnv) const;
+
     // extensions
     pddiExtension* GetExtension(unsigned extID);
     bool VerifyExtension(unsigned extID);
@@ -163,10 +169,28 @@ protected:
     pddiShader* clearShader;
     pddiVector4* dummyVector;
 
-    gxmProgram* vertexProgram;
+    gxmProgram* vertexProgram;      // the one selected for the current draw
     gxmProgram* colorProgram;
     gxmProgram* textureProgram;
     gxmProgram* alphaTestProgram;
+
+    // Runtime compiled shader variants (see shaderbuild.cpp); NULL when they are not available,
+    // only vertexPrograms[0][VARIANT_FULL] is always set. First index: 1 = hardware skinned.
+    gxmProgram* vertexPrograms[2][NUM_VERTEX_VARIANTS];
+    gxmProgram* colorNoSpecProgram;
+    gxmProgram* textureNoSpecProgram;
+    gxmProgram* alphaTestNoSpecProgram;
+    bool variantsAvailable;
+    bool hardwareSkinning;
+    class gxmHardwareSkinning* extSkin;
+    class gxmPrimBuffer* currentDrawBuffer;   // set right before SetMaterial(), read by PreRender()
+    int currentVariant;
+    int lastPolygonMode;                // sceGxmSetFrontPolygonMode value of this scene, -1 = unknown
+
+    void LoadShaderVariants();
+    void ReleaseProgram(gxmProgram*& program);
+    void DrawSkinned(pddiShader* mat, pddiPrimBuffer* buffer, const pddiMatrix* const* palette, unsigned count);
+    friend class gxmHardwareSkinning;
 
     SceGxmVertexProgram* vertexShader;
     void* vertexUniformBuffer;
@@ -263,7 +287,10 @@ public:
     unsigned GetMemImageLength() {return 0; }
     void SetMemImageParam(unsigned param, unsigned value) { /**/ }
 
-    SceGxmVertexProgram* GetVertexShader() { return vertexShader; }
+    // Program and precomputed draw of a shader variant; created when first needed, they differ
+    // per variant because a precomputed draw is tied to the vertex program it was made with.
+    SceGxmVertexProgram* GetVertexShader(int variant);
+    bool IsSkinned() const { return skinned; }
     unsigned GetVertexFormat() { return vertexType; }
     unsigned GetStride() { return stride; }
     void Display(void);
@@ -302,6 +329,9 @@ protected:
     float* normal;
     float* uv;
     unsigned char* colour;
+    float* skinWeights;
+    unsigned char* skinIndices;
+    bool skinned;
 
     unsigned allocated;
     unsigned total;
@@ -312,9 +342,9 @@ protected:
     unsigned drawCount;     // indices submitted by Display(); <= indexCount
 
     bool valid;
-    SceGxmVertexProgram* vertexShader;
-    SceGxmPrecomputedDraw precomputed;
-    unsigned char* state;
+    SceGxmVertexProgram* vertexShaders[gxmContext::NUM_VERTEX_VARIANTS];
+    SceGxmPrecomputedDraw precomputed[gxmContext::NUM_VERTEX_VARIANTS];
+    unsigned char* states[gxmContext::NUM_VERTEX_VARIANTS];
 
     unsigned mem;
     unsigned stateSize;     // size of the precomputed draw state allocation

@@ -120,6 +120,7 @@ if(SRR2_P3D_PDDI STREQUAL "GXM")
 		"pddi/gxm/material.cpp"
 		"pddi/gxm/texture.cpp"
 		"pddi/gxm/program.cpp"
+		"pddi/gxm/shaderbuild.cpp"
 		"pddi/gxm/display.cpp"
 		"pddi/gxm/texture_swizzler.cpp"
 	)

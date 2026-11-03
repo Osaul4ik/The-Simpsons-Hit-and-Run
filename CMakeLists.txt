@@ -71,6 +71,13 @@ if(VITA)
 	set(VITA_MKSFOEX_FLAGS "${VITA_MKSFOEX_FLAGS} -d ATTRIBUTE2=12")
 endif()
 
+if(VITA)
+	option(SRR2_LTO "Link time optimization (slower build; turn off if the link fails)" ON)
+	if(SRR2_LTO AND NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
+		set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
+	endif()
+endif()
+
 find_program(CCACHE_FOUND ccache)
 if(CCACHE_FOUND)
     set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE ccache)
@@ -104,6 +111,11 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
 		add_compile_options(
 			-mtune=cortex-a9
 			-mfpu=neon
+			# sqrtf etc. compile to the VFP instruction instead of a libm call that sets errno
+			-fno-math-errno
+			-fno-trapping-math
+			# 1.5 means 1.5f: no float -> double -> float conversions on a CPU with a slow double path
+			-fsingle-precision-constant
 		)
 	endif()
 endif()
@@ -223,6 +235,14 @@ if(VITA)
 		)
 	else()
 		vita_create_self(${PROJECT_NAME}.self code/${PROJECT_NAME})
+		# Shaders compiled from the Options menu (ux0:data/simpsons/shadercache) are packaged
+		# as soon as they are copied into libs/pure3d/pddi/gxm/shaders.
+		set(SRR2_VARIANT_GXP "")
+		foreach(_gxp v_diffuse v_unlit v_skin_full v_skin_diffuse v_skin_unlit f_color_nospec f_texture_nospec f_alpha_nospec)
+			if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/libs/pure3d/pddi/gxm/shaders/${_gxp}.gxp")
+				list(APPEND SRR2_VARIANT_GXP libs/pure3d/pddi/gxm/shaders/${_gxp}.gxp shaders/${_gxp}.gxp)
+			endif()
+		endforeach()
 		# The FILE directive lets you add additional files to the VPK, the syntax is
 		# FILE src_path dst_path_in_vpk. In this case, we add the LiveArea paths.
 		vita_create_vpk(${SRR2_FILENAME}${SRR2_REGION}.vpk ${VITA_TITLEID} ${PROJECT_NAME}.self
@@ -233,6 +253,7 @@ if(VITA)
 			sce_sys/livearea/contents/startup.png sce_sys/livearea/contents/startup.png
 			sce_sys/livearea/contents/template.xml sce_sys/livearea/contents/template.xml
 			art art
+			${SRR2_VARIANT_GXP}
 
 			#gxp
 			libs/pure3d/pddi/gxm/shaders/vertex_cg.gxp shaders/vertex_cg.gxp

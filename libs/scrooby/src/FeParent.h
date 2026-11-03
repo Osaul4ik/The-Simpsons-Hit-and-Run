@@ -32,6 +32,7 @@ class FeParent :
     FeParent();
     
     virtual void AddChild( FeEntity* s );
+    virtual Scrooby::Text* AddTextLike( Scrooby::Text* source, const char* name, int offsetX, int offsetY ) { return NULL; }
     void Resize( const size_t size );
     void RemoveChild( FeEntity* s );
     void ReplaceChild( FeEntity* s, FeEntity* newS );

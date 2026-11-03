@@ -90,6 +90,8 @@ public:
 
     int  CountDevPasses(void);
     void SetDevPass(unsigned);
+    void SelectProgram();
+    bool appliedNoSpecular;     // the fragment program in use has no specular input
     void PreRender(void);
 
 private:

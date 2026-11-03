@@ -79,6 +79,7 @@ class FeText
         virtual void Reset();
         virtual void Display();
 
+        void CopyStyleFrom( const FeText& other );
         void SetTextStyle( const char* textStyleName );
         void SetTextStyle( unsigned int resourceID );
         tFont* GetTextStyle() const;

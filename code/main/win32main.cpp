@@ -70,8 +70,11 @@ static void ProcessCommandLineArgumentsFromFile();
 //=============================================================================
 // Runtime settings (Vita). Read from ux0:data/simpsons/vita.cfg, one "key=value"
 // per line, so they can be tuned without rebuilding:
-//     fps=30            30 (default, 2 vblanks per frame) or 60 (1 vblank)
+//     fps=30            30 (default, 2 vblanks per frame) or 60 (1 vblank); also
+//                       chosen in the game's Options menu, which rewrites this line
 //     zonecache=6       max zones kept resident after leaving them (0 = off)
+//     fastshaders=1     0 = only the packaged shaders, no runtime compiled variants
+//     hwskin=1          0 = skin on the CPU (NEON) even when the shaders compiled
 // Missing file or key = compile-time default.
 //=============================================================================
 #ifdef RAD_VITA
@@ -83,6 +86,8 @@ static void ProcessCommandLineArgumentsFromFile();
 #endif
 int g_vitaZoneCacheMaxZones = RAD_VITA_ZONE_CACHE_MAX_ZONES;   // read by RenderManager
 int g_gxmVblankInterval     = RAD_VITA_VBLANK_INTERVAL;        // read by gxmDisplay::displayCallback
+int g_gxmFastShaders        = 1;                               // read by gxmContext::LoadShaderVariants
+int g_gxmHardwareSkinning   = 1;                               // read by gxmContext::LoadShaderVariants
 
 static void LoadVitaConfig()
 {
@@ -99,12 +104,78 @@ static void LoadVitaConfig()
         {
             g_gxmVblankInterval = ( v >= 60 ) ? 1 : 2;
         }
+        else if( sscanf( line, "fastshaders=%d", &v ) == 1 )
+        {
+            g_gxmFastShaders = v != 0;
+        }
+        else if( sscanf( line, "hwskin=%d", &v ) == 1 )
+        {
+            g_gxmHardwareSkinning = v != 0;
+        }
         else if( sscanf( line, "zonecache=%d", &v ) == 1 )
         {
             g_vitaZoneCacheMaxZones = ( v < 0 ) ? 0 : ( v > 32 ? 32 : v );
         }
     }
     fclose( f );
+}
+
+// Frame rate choice of the options menu. Takes effect on the next frame.
+int VitaGetFrameRate()
+{
+    return ( g_gxmVblankInterval == 1 ) ? 60 : 30;
+}
+
+void VitaSetFrameRate( int fps )
+{
+    g_gxmVblankInterval = ( fps >= 60 ) ? 1 : 2;
+}
+
+// Writes the current frame rate to vita.cfg, keeping every other line of the file.
+// A file that does not fit the buffer is left alone (the choice then lasts until the game exits).
+void VitaSaveFrameRate()
+{
+    const char* path = "ux0:data/simpsons/vita.cfg";
+    char keep[2048];
+    size_t keepSize = 0;
+
+    FILE* f = fopen( path, "r" );
+    if( f != NULL )
+    {
+        char line[96];
+        bool fits = true;
+        while( fits && fgets( line, sizeof( line ), f ) != NULL )
+        {
+            if( strncmp( line, "fps=", 4 ) == 0 )
+            {
+                continue;
+            }
+            const size_t length = strlen( line );
+            fits = keepSize + length + 1 < sizeof( keep );
+            if( fits )
+            {
+                memcpy( keep + keepSize, line, length );
+                keepSize += length;
+                if( keep[ keepSize - 1 ] != '\n' )
+                {
+                    keep[ keepSize++ ] = '\n';   // last line without a line end
+                }
+            }
+        }
+        fclose( f );
+        if( !fits )
+        {
+            return;
+        }
+    }
+
+    f = fopen( path, "w" );
+    if( f != NULL )
+    {
+        fprintf( f, "fps=%d\n", VitaGetFrameRate() );
+        fwrite( keep, 1, keepSize, f );
+        fclose( f );
+    }
 }
 #endif
 

@@ -220,7 +220,7 @@ void radMovieRenderStrategyBink::ChangeParameters( unsigned int width, unsigned 
                 #if RAD_VITAGL
                 bool wasTextureCreated = m_pTile[ tileIndex ].m_pTexture->Create( m_MovieWidth, m_MovieHeight, RMV_TEXTURE_BITDEPTH, 0, 0, PDDI_TEXTYPE_YUV );
                 #elif RAD_WIN32
-                bool wasTextureCreated = m_pTile[ tileIndex ].m_pTexture->Create( tileDim, tileDim, RMV_TEXTURE_BITDEPTH, 8, 0, PDDI_TEXTYPE_RGB );
+                bool wasTextureCreated = m_pTile[ tileIndex ].m_pTexture->Create( tileDim, tileDim, RMV_TEXTURE_BITDEPTH, 8, 0, PDDI_TEXTYPE_RGB, PDDI_USAGE_DYNAMIC ); // rewritten every video frame: must not get a swizzled mip chain
                 #elif RAD_XBOX
                 bool wasTextureCreated = m_pTile[ tileIndex ].m_pTexture->Create( m_MovieWidth, m_MovieHeight, RMV_TEXTURE_BITDEPTH, 0, 0, PDDI_TEXTYPE_LINEAR );
                 #elif RAD_GAMECUBE

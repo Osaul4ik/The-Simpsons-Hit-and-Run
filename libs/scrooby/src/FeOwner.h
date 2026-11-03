@@ -54,6 +54,7 @@ class FeOwner : public FeDrawable,
 public:
     FeOwner( const tName& name ); 
     FeText*         AddText        ( const tName& name, int x, int y );
+    virtual Scrooby::Text* AddTextLike( Scrooby::Text* source, const char* name, int offsetX, int offsetY );
     FeSprite*       AddSprite      ( const tName& name, int x, int y );
     FeGroup*        AddGroup       ( const tName& name );
     FePolygon*      AddPolygon     ( const tName& name );

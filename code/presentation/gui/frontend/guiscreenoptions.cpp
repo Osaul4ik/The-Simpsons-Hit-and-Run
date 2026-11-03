@@ -28,6 +28,7 @@
 #include <memory/srrmemory.h>
 
 #include <raddebug.hpp> // Foundation
+#include <stdio.h>
 #include <Layer.h>
 #include <Page.h>
 #include <Screen.h>
@@ -36,6 +37,15 @@
 
 #ifdef RAD_PS2
     #include <main/ps2platform.h>
+#endif
+
+#ifdef RAD_VITA
+#include <pddi/gxm/shaderbuild.hpp>
+
+// code/main/win32main.cpp
+int VitaGetFrameRate();
+void VitaSetFrameRate( int fps );
+void VitaSaveFrameRate();
 #endif
 
 //===========================================================================
@@ -72,6 +82,16 @@ CGuiScreenOptions::CGuiScreenOptions
     m_cheatsOverlay( NULL ),
     m_startingCheatID( 0 ),
     m_elapsedProgressiveModeTestTime( -1 )
+#ifdef RAD_VITA
+    , m_frameRateLabel( NULL ),
+    m_savedFrameRate( VitaGetFrameRate() ),
+    m_compileLabel( NULL ),
+    m_shaderStatus( NULL ),
+    m_compileNext( -1 ),
+    m_compileDone( 0 ),
+    m_compileLabelShown( false ),
+    m_compileFinished( false )
+#endif
 {
 MEMTRACK_PUSH_GROUP( "CGUIScreenOptions" );
     // Retrieve the Scrooby drawing elements.
@@ -105,13 +125,92 @@ MEMTRACK_PUSH_GROUP( "CGUIScreenOptions" );
     }
 #endif
 
+#ifdef RAD_VITA
+    // The PS2 "display mode" item (label + value + arrows) is the frame rate choice here.
+    // The Vita frontend data decides whether its value text has room for two choices;
+    // without one, the label itself shows the value and the item toggles on accept/left/right.
+    Scrooby::Text* frameRateValue = pGroup->GetText( "DisplayMode_Value" );
+    if( frameRateValue != NULL && frameRateValue->GetNumOfStrings() >= 2 )
+    {
+        pGroup->GetText( "DisplayMode" )->SetString( 0, "FRAME RATE" );
+        frameRateValue->SetString( 0, "30 FPS" );
+        frameRateValue->SetString( 1, "60 FPS" );
+    }
+    else
+    {
+        if( frameRateValue != NULL )
+        {
+            frameRateValue->SetVisible( false );
+        }
+        frameRateValue = NULL;
+        m_frameRateLabel = pGroup->GetText( "DisplayMode" );
+        if( pGroup->GetSprite( "DisplayMode_ArrowL" ) != NULL )
+        {
+            pGroup->GetSprite( "DisplayMode_ArrowL" )->SetVisible( false );
+        }
+        if( pGroup->GetSprite( "DisplayMode_ArrowR" ) != NULL )
+        {
+            pGroup->GetSprite( "DisplayMode_ArrowR" )->SetVisible( false );
+        }
+    }
+    m_pMenu->AddMenuItem( pGroup->GetText( "DisplayMode" ),
+                          frameRateValue,
+#else
     m_pMenu->AddMenuItem( pGroup->GetText( "DisplayMode" ),
                           pGroup->GetText( "DisplayMode_Value" ),
+#endif
                           NULL,
                           NULL,
                           pGroup->GetSprite( "DisplayMode_ArrowL" ),
                           pGroup->GetSprite( "DisplayMode_ArrowR" ),
+#ifdef RAD_VITA
+                          SELECTION_ENABLED | VALUES_WRAPPED | TEXT_OUTLINE_ENABLED | ( frameRateValue == NULL ? SELECTABLE : 0 ) );
+#else
                           SELECTION_ENABLED | VALUES_WRAPPED | TEXT_OUTLINE_ENABLED );
+#endif
+
+#ifdef RAD_VITA
+    // Two more rows the frontend data does not have: new texts in the style of the menu items,
+    // continuing the rows' spacing, and the whole menu moved by one row to stay centered.
+    {
+        Scrooby::Text* first = pGroup->GetText( "Controller" );
+        Scrooby::Text* second = pGroup->GetText( "Sound" );
+        if( first != NULL && second != NULL )
+        {
+            int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+            first->GetOriginPosition( x0, y0 );
+            second->GetOriginPosition( x1, y1 );
+            const int spacing = y1 - y0;
+
+            // Controller, Sound, ViewMovies, ViewCredits, DisplayMode: the new ones are rows 6 and 7
+            m_compileLabel = pGroup->AddTextLike( first, "CompileShaders", 0, spacing * 5 );
+            m_shaderStatus = pGroup->AddTextLike( first, "ShaderStatus", 0, spacing * 6 );
+        }
+        if( m_compileLabel != NULL && m_shaderStatus != NULL )
+        {
+            int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+            first->GetOriginPosition( x0, y0 );
+            second->GetOriginPosition( x1, y1 );
+
+            m_pMenu->AddMenuItem( m_compileLabel );
+
+            // The status can be long: a wider box around the same center, and a bit smaller.
+            int width = 0, height = 0;
+            m_shaderStatus->GetBoundingBoxSize( width, height );
+            if( m_shaderStatus->GetHorizontalJustification() == Scrooby::Centre )
+            {
+                m_shaderStatus->SetBoundingBoxSize( width * 2, height );
+                m_shaderStatus->Translate( -width / 2, 0 );
+            }
+            m_shaderStatus->ScaleAboutCenter( 0.8f );
+
+            pGroup->ResetTransformation();
+            pGroup->Translate( 0, -( y1 - y0 ) );
+
+            this->UpdateShaderStatus();
+        }
+    }
+#endif
 
 #ifdef RAD_DEMO
     m_pMenu->SetMenuItemEnabled( MENU_ITEM_VIEW_MOVIES, false );
@@ -135,6 +234,13 @@ MEMTRACK_PUSH_GROUP( "CGUIScreenOptions" );
     //     w/ specific button combo pressed and a display prompt
     //
 //#ifndef RAD_PS2
+#ifdef RAD_VITA
+    if( frameRateValue != NULL )
+    {
+        m_pMenu->SetSelectionValueCount( MENU_ITEM_DISPLAY_MODE, 2 );
+    }
+    this->UpdateFrameRateLabel();
+#else
     // hide display mode menu item for non-PS2 platforms
     //
     m_pMenu->SetMenuItemEnabled( MENU_ITEM_DISPLAY_MODE, false, true );
@@ -145,6 +251,7 @@ MEMTRACK_PUSH_GROUP( "CGUIScreenOptions" );
     pGroup->ResetTransformation();
     pGroup->Translate( 0, -30 );
     #endif
+#endif
 //#endif // !RAD_PS2
 
     // get cheats page, if included
@@ -253,6 +360,21 @@ void CGuiScreenOptions::HandleMessage
         return;
     }
 
+#ifdef RAD_VITA
+    if( m_compileNext >= 0 )
+    {
+        // the menu stays on screen and cannot be left until the compiler is done
+        if( this->IsControllerMessage( message ) )
+        {
+            return;
+        }
+        if( message == GUI_MSG_UPDATE && m_state == GUI_WINDOW_STATE_RUNNING )
+        {
+            this->UpdateShaderCompile();
+        }
+    }
+#endif
+
     if( message == GUI_MSG_MENU_PROMPT_RESPONSE )
     {
         if( param1 == PROMPT_DISPLAY_PROGRESSIVE_SCAN_PS2 )
@@ -306,16 +428,34 @@ void CGuiScreenOptions::HandleMessage
 
     if( m_state == GUI_WINDOW_STATE_RUNNING )
     {
+#ifdef RAD_VITA
+        if( m_frameRateLabel != NULL &&
+            ( message == GUI_MSG_CONTROLLER_LEFT || message == GUI_MSG_CONTROLLER_RIGHT ) &&
+            m_pMenu->GetSelection() == MENU_ITEM_DISPLAY_MODE )
+        {
+            this->ToggleFrameRate();
+        }
+#endif
         switch( message )
         {
             case GUI_MSG_MENU_SELECTION_CHANGED:
             {
+#ifdef RAD_VITA
+                this->SetButtonVisible( BUTTON_ICON_ACCEPT, param1 != MENU_ITEM_DISPLAY_MODE || m_frameRateLabel != NULL );
+#else
                 this->SetButtonVisible( BUTTON_ICON_ACCEPT, param1 != MENU_ITEM_DISPLAY_MODE );
+#endif
 
                 break;
             }
             case GUI_MSG_MENU_SELECTION_VALUE_CHANGED:
             {
+#ifdef RAD_VITA
+                if( param1 == MENU_ITEM_DISPLAY_MODE )
+                {
+                    VitaSetFrameRate( param2 == 1 ? 60 : 30 );
+                }
+#else
                 if( param1 == MENU_ITEM_DISPLAY_MODE )
                 {
                     if( param2 == 1 ) // progressive mode
@@ -331,6 +471,7 @@ void CGuiScreenOptions::HandleMessage
 #endif
                     }
                 }
+#endif // RAD_VITA
 
                 break;
             }
@@ -338,6 +479,27 @@ void CGuiScreenOptions::HandleMessage
             {
                 switch( param1 )
                 {
+#ifdef RAD_VITA
+                    case MENU_ITEM_COMPILE_SHADERS:
+                    {
+                        // Only ever started here: nothing compiles on its own.
+                        m_compileNext = 0;
+                        m_compileDone = 0;
+                        m_compileLabelShown = false;
+                        m_compileFinished = false;
+
+                        break;
+                    }
+                    case MENU_ITEM_DISPLAY_MODE:
+                    {
+                        if( m_frameRateLabel != NULL )
+                        {
+                            this->ToggleFrameRate();
+                        }
+
+                        break;
+                    }
+#endif
                     case MENU_ITEM_CONTROLLER:
                     {
                         m_pParent->HandleMessage( GUI_MSG_GOTO_SCREEN, GUI_SCREEN_ID_CONTROLLER );
@@ -465,10 +627,25 @@ void CGuiScreenOptions::InitIntro()
 #endif
 
     rAssert( m_pMenu != NULL );
+#ifdef RAD_VITA
+    if( m_pMenu->GetSelection() == MENU_ITEM_DISPLAY_MODE && m_frameRateLabel == NULL )
+#else
     if( m_pMenu->GetSelection() == MENU_ITEM_DISPLAY_MODE )
+#endif
     {
         this->SetButtonVisible( BUTTON_ICON_ACCEPT, false );
     }
+
+#ifdef RAD_VITA
+    // show the current frame rate (also set by "fps=" in vita.cfg)
+    //
+    if( m_frameRateLabel == NULL )
+    {
+        m_pMenu->SetSelectionValue( MENU_ITEM_DISPLAY_MODE, VitaGetFrameRate() >= 60 ? 1 : 0 );
+    }
+    this->UpdateFrameRateLabel();
+    this->UpdateShaderStatus();
+#endif
 
 #ifdef RAD_PS2
     // update current display mode
@@ -513,7 +690,116 @@ void CGuiScreenOptions::InitOutro()
 #ifndef RAD_E3
     GetCheatInputSystem()->SetEnabled( false );
 #endif
+
+#ifdef RAD_VITA
+    // written when leaving the screen, not on every toggle (a memory card write takes a while)
+    if( VitaGetFrameRate() != m_savedFrameRate )
+    {
+        VitaSaveFrameRate();
+        m_savedFrameRate = VitaGetFrameRate();
+    }
+#endif
 }
+
+#ifdef RAD_VITA
+void CGuiScreenOptions::UpdateFrameRateLabel()
+{
+    if( m_frameRateLabel != NULL )
+    {
+        m_frameRateLabel->SetString( 0, VitaGetFrameRate() >= 60 ? "FRAME RATE: 60 FPS" : "FRAME RATE: 30 FPS" );
+    }
+}
+
+void CGuiScreenOptions::UpdateShaderStatus()
+{
+    if( m_compileLabel == NULL || m_shaderStatus == NULL )
+    {
+        return;
+    }
+
+    int compiled = 0;
+    for( int i = 0; i < GXM_SHADER_COUNT; i++ )
+    {
+        if( gxmShaderIsCompiled( static_cast<gxmShaderId>( i ) ) )
+        {
+            compiled++;
+        }
+    }
+
+    char label[64];
+    if( m_compileFinished && gxmShaderCompilerMissing() )
+    {
+        sprintf( label, "SHADER COMPILER NOT FOUND" );
+    }
+    else if( m_compileFinished && m_compileDone < GXM_SHADER_COUNT )
+    {
+        sprintf( label, "COMPILED %d OF %d", m_compileDone, static_cast<int>( GXM_SHADER_COUNT ) );
+    }
+    else if( compiled == GXM_SHADER_COUNT )
+    {
+        sprintf( label, "SHADERS COMPILED" );
+    }
+    else
+    {
+        sprintf( label, "COMPILE SHADERS" );
+    }
+    m_compileLabel->SetString( 0, label );
+
+    const bool variants = gxmShaderVariantsInUse();
+    const bool skinning = gxmShaderHardwareSkinningInUse();
+    if( m_compileFinished && compiled == GXM_SHADER_COUNT && !( variants && skinning ) )
+    {
+        m_shaderStatus->SetString( 0, "RESTART THE GAME TO USE THEM" );
+    }
+    else if( !variants )
+    {
+        m_shaderStatus->SetString( 0, "USING ORIGINAL SHADERS" );
+    }
+    else if( !skinning )
+    {
+        m_shaderStatus->SetString( 0, "USING OPTIMIZED SHADERS" );
+    }
+    else
+    {
+        m_shaderStatus->SetString( 0, "USING OPTIMIZED SHADERS AND GPU SKINNING" );
+    }
+}
+
+void CGuiScreenOptions::UpdateShaderCompile()
+{
+    // One program per update, with the progress on screen for a frame first: a program can take
+    // seconds and blocks the frame it is compiled in.
+    if( !m_compileLabelShown )
+    {
+        char label[64];
+        sprintf( label, "COMPILING %d OF %d", m_compileNext + 1, static_cast<int>( GXM_SHADER_COUNT ) );
+        m_compileLabel->SetString( 0, label );
+        m_compileLabelShown = true;
+        return;
+    }
+    m_compileLabelShown = false;
+
+    if( gxmShaderCompile( static_cast<gxmShaderId>( m_compileNext ) ) )
+    {
+        m_compileDone++;
+    }
+    m_compileNext++;
+
+    if( gxmShaderCompilerMissing() || m_compileNext >= GXM_SHADER_COUNT )
+    {
+        m_compileNext = -1;
+        m_compileFinished = true;
+        gxmShaderCompileEnd();
+        this->UpdateShaderStatus();
+    }
+}
+
+void CGuiScreenOptions::ToggleFrameRate()
+{
+    VitaSetFrameRate( VitaGetFrameRate() >= 60 ? 30 : 60 );
+    this->UpdateFrameRateLabel();
+}
+#endif
 
 
 //---------------------------------------------------------------------

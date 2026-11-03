@@ -729,6 +729,25 @@ void FeText::SetString( int index, UnicodeString& string, unsigned int textBible
     m_isDirty = true;
 }
 
+void FeText::CopyStyleFrom( const FeText& other )
+{
+    int width = 0, height = 0;
+    other.GetBoundingBoxSize( width, height );
+    SetBoundingBoxSize( width, height );
+    SetHorizontalJustification( other.GetHorizontalJustification() );
+    SetVerticalJustification( other.GetVerticalJustification() );
+    SetTextStyle( other.mTextStyle );
+    mOriginalColour = other.mOriginalColour;
+    SetColour( other.GetColour() );
+    mTextMode = other.mTextMode;
+    mDisplayShadow = other.mDisplayShadow;
+    mXShadowOffset = other.mXShadowOffset;
+    mYShadowOffset = other.mYShadowOffset;
+    mShadowColour = other.mShadowColour;
+    mDisplayOutline = other.mDisplayOutline;
+    mOutlineColour = other.mOutlineColour;
+}
+
 void FeText::SetIndex(int n)
 {
     if (n < GetChildrenCount())

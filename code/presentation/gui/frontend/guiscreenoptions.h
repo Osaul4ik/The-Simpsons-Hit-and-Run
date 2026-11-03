@@ -65,6 +65,9 @@ private:
         MENU_ITEM_VIEW_MOVIES,
         MENU_ITEM_VIEW_CREDITS,
         MENU_ITEM_DISPLAY_MODE,
+#ifdef RAD_VITA
+        MENU_ITEM_COMPILE_SHADERS,
+#endif
 
         NUM_MENU_ITEMS
     };
@@ -76,6 +79,24 @@ private:
     int m_startingCheatID;
 
     int m_elapsedProgressiveModeTestTime;
+
+#ifdef RAD_VITA
+    void UpdateFrameRateLabel();
+    void ToggleFrameRate();
+
+    Scrooby::Text* m_frameRateLabel;    // only when the page has no usable value text for the choice
+
+    void UpdateShaderStatus();
+    void UpdateShaderCompile();
+
+    Scrooby::Text* m_compileLabel;      // texts added at runtime, styled like the other menu items
+    Scrooby::Text* m_shaderStatus;
+    int m_compileNext;                  // next program to compile, -1 when not compiling
+    int m_compileDone;                  // programs compiled by this run
+    bool m_compileLabelShown;           // the progress was on screen for a frame before the next (slow) step
+    bool m_compileFinished;             // this run ended, keep showing its result
+    int m_savedFrameRate;
+#endif
 
 };
 

@@ -25,6 +25,37 @@ void LogProgress( const char* stage ) __attribute__((weak));
 #include <SDL.h>
 #include <vector>
 
+#include <pddi/gxm/shaderbuild.hpp>
+#include <pddi/pddiext.hpp>
+
+// Runtime switches, from vita.cfg ("fastshaders=0", "hwskin=0"; code/main/win32main.cpp)
+extern int g_gxmFastShaders;
+extern int g_gxmHardwareSkinning;
+
+class gxmHardwareSkinning : public pddiExtHardwareSkinning
+{
+public:
+    enum { MAX_PALETTE = 256 };     // vertex indices are bytes; also the size of "bones" in the shader
+
+    gxmHardwareSkinning(gxmContext* c) : context(c), count(0) {}
+
+    int MaxMatrixPaletteSize(unsigned) { return MAX_PALETTE; }
+    void Begin(void) {}
+    void End(void) {}
+    void SetMatrixCount(unsigned n) { count = n > MAX_PALETTE ? MAX_PALETTE : n; }
+    void SetMatrix(unsigned index, pddiMatrix* m)
+    {
+        if(index < MAX_PALETTE)
+            palette[index] = m;
+    }
+    void DrawSkin(pddiShader* shader, pddiPrimBuffer* skin) { context->DrawSkinned(shader, skin, palette, count); }
+
+private:
+    gxmContext* context;
+    unsigned count;
+    const pddiMatrix* palette[MAX_PALETTE];
+};
+
 // Reuse the bound vertex default uniform buffer for consecutive draws whose matrices, lights and
 // material colours did not change, instead of reserving and filling a new one for every draw.
 // This relies on the default uniform buffer staying bound across draws made with the same vertex
@@ -159,6 +190,16 @@ gxmContext::gxmContext(gxmDevice* dev, gxmDisplay* disp) : pddiBaseContext((pddi
     alphaTestProgram = new gxmProgram(shaderPatcher, p3d::openFile("app0:/shaders/alpha_cg.gxp", false));
     alphaTestProgram->AddRef();
 
+    memset(vertexPrograms, 0, sizeof(vertexPrograms));
+    vertexPrograms[0][VARIANT_FULL] = vertexProgram;
+    colorNoSpecProgram = textureNoSpecProgram = alphaTestNoSpecProgram = NULL;
+    variantsAvailable = hardwareSkinning = false;
+    extSkin = NULL;
+    currentDrawBuffer = NULL;
+    currentVariant = VARIANT_FULL;
+    lastPolygonMode = -1;
+    LoadShaderVariants();
+
     radMemorySetAllocationName("dummyVector");
     dummyVector = (pddiVector4*)radMemorySpaceAlloc(
         radMemorySpace_User,
@@ -188,7 +229,14 @@ gxmContext::~gxmContext()
     DrainPrimPool();
     defaultShader->Release();
     clearShader->Release();
-    vertexProgram->Release();
+    delete extSkin;
+    for(int s = 0; s < 2; s++)
+        for(int v = 0; v < NUM_VERTEX_VARIANTS; v++)
+            if(vertexPrograms[s][v])
+                vertexPrograms[s][v]->Release();
+    ReleaseProgram(colorNoSpecProgram);
+    ReleaseProgram(textureNoSpecProgram);
+    ReleaseProgram(alphaTestNoSpecProgram);
     colorProgram->Release();
     textureProgram->Release();
     alphaTestProgram->Release();
@@ -244,6 +292,7 @@ void gxmContext::BeginFrame()
         display->GetDepthSurface()
     ));
     inScene = true;
+    lastPolygonMode = -1;
     InvalidateUniformShadow();          // the uniform ring starts over with every scene
 
     if(display->HasReset())
@@ -497,8 +546,7 @@ pddiPrimStream* gxmContext::BeginPrims(pddiShader* mat, pddiPrimType primType, u
     streamsHead.value = (streamsHead.value + 1) % BUFFERED_VERTS;
     streams[streamsHead.value] = thePrimStream.buffer;
 
-    SceGxmVertexProgram* vert = vertexProgram->PatchVertexShader(vertexType, ((gxmPrimBuffer*)thePrimStream.buffer)->GetStride());
-    SetVertexShader(((gxmPrimBuffer*)thePrimStream.buffer)->GetVertexShader());
+    currentDrawBuffer = (gxmPrimBuffer*)thePrimStream.buffer;
     pddiBaseShader* material = (pddiBaseShader*)mat;
     ADD_STAT(PDDI_STAT_MATERIAL_OPS, !material->IsCurrent());
     material->SetMaterial();
@@ -537,6 +585,12 @@ public:
 
         if(buffer->colour)
             buffer->colour += buffer->stride;
+
+        if(buffer->skinWeights)
+            buffer->skinWeights = (float*)((char*)buffer->skinWeights + buffer->stride);
+
+        if(buffer->skinIndices)
+            buffer->skinIndices += buffer->stride;
 
         buffer->total++;
         PDDIASSERT(buffer->total <= buffer->allocated);
@@ -585,12 +639,59 @@ public:
         //
     }
 
-    void SkinIndices(unsigned, unsigned, unsigned, unsigned)
+    void SkinIndices(unsigned a, unsigned b, unsigned c, unsigned d)
     {
+        if(buffer->skinIndices)
+        {
+            buffer->skinIndices[0] = (unsigned char)a;
+            buffer->skinIndices[1] = (unsigned char)b;
+            buffer->skinIndices[2] = (unsigned char)c;
+            buffer->skinIndices[3] = (unsigned char)d;
+        }
     }
 
-    void SkinWeights(float, float, float)
+    void SkinWeights(float a, float b, float c)
     {
+        if(buffer->skinWeights)
+        {
+            buffer->skinWeights[0] = a;
+            buffer->skinWeights[1] = b;
+            buffer->skinWeights[2] = c;
+        }
+    }
+
+    bool WriteSkinnedVertices(const float* packed, unsigned count, bool withNormals)
+    {
+        // position and normal are next to each other in the vertex, see gxmPrimBuffer's constructor
+        const unsigned bytes = withNormals ? 24 : 12;
+        char* out = (char*)buffer->coord;
+        for(unsigned i = 0; i < count; i++)
+        {
+            memcpy(out, packed, bytes);
+            out += buffer->stride;
+            packed += bytes / sizeof(float);
+        }
+        coordsWritten(count);
+        return true;
+    }
+
+    void coordsWritten(unsigned count)
+    {
+        // same bookkeeping as 'count' calls of Next()
+        const unsigned bytes = count * buffer->stride;
+        if(buffer->coord)
+            buffer->coord = (float*)((char*)buffer->coord + bytes);
+        if(buffer->normal)
+            buffer->normal = (float*)((char*)buffer->normal + bytes);
+        if(buffer->uv)
+            buffer->uv = (float*)((char*)buffer->uv + bytes);
+        if(buffer->colour)
+            buffer->colour += bytes;
+        if(buffer->skinWeights)
+            buffer->skinWeights = (float*)((char*)buffer->skinWeights + bytes);
+        if(buffer->skinIndices)
+            buffer->skinIndices += bytes;
+        buffer->total += count;
     }
 
     void Vertex(pddiVector* v, pddiColour c) 
@@ -666,6 +767,11 @@ gxmPrimBuffer::gxmPrimBuffer(gxmContext* c, pddiPrimType type, unsigned vertexFo
     total = allocated = stride = nStrips = 0;
     coord = normal = uv = NULL;
     colour = NULL;
+    skinWeights = NULL;
+    skinIndices = NULL;
+    memset(vertexShaders, 0, sizeof(vertexShaders));
+    memset(states, 0, sizeof(states));
+    skinned = context->hardwareSkinning && (vertexFormat & (PDDI_V_WEIGHTS | PDDI_V_INDICES)) == (PDDI_V_WEIGHTS | PDDI_V_INDICES);
     strips = NULL;
     indices = NULL;
 
@@ -677,7 +783,7 @@ gxmPrimBuffer::gxmPrimBuffer(gxmContext* c, pddiPrimType type, unsigned vertexFo
 
     allocated = nVertex;
     
-    stride = 36;
+    stride = skinned ? 52 : 36;
 
     mem = stride * nVertex;
     PDDIASSERT(mem);
@@ -707,6 +813,24 @@ gxmPrimBuffer::gxmPrimBuffer(gxmContext* c, pddiPrimType type, unsigned vertexFo
     {
         colour = ptr;
         ptr += 4;
+    }
+
+    if(skinned)
+    {
+        // Attributes follow the others, like gxmProgram::PatchVertexShader expects. Default: all
+        // weight on the first palette entry, for meshes without weight/index chunks.
+        skinWeights = (float*)ptr;
+        ptr += 12;
+        skinIndices = ptr;
+        ptr += 4;
+        for(int i = 0; i < nVertex; i++)
+        {
+            float* w = (float*)((char*)skinWeights + i * stride);
+            w[0] = 1.0f;
+            w[1] = 0.0f;
+            w[2] = 0.0f;
+            memset(skinIndices + i * stride, 0, 4);
+        }
     }
 
     indexCount = nIndex > 0 ? nIndex : nVertex;
@@ -741,17 +865,8 @@ gxmPrimBuffer::gxmPrimBuffer(gxmContext* c, pddiPrimType type, unsigned vertexFo
         }
     }
 
-    vertexShader = context->vertexProgram->PatchVertexShader(vertexType, stride);
-    stateSize = sceGxmGetPrecomputedDrawSize(vertexShader);
-    state = (uint8_t*)radMemorySpaceAllocAligned(
-        radMemorySpace_User,
-        radMemoryGetCurrentAllocator(),
-        stateSize,
-        16);
-    CHK_GXM(sceGxmPrecomputedDrawInit(&precomputed, vertexShader, state));
-    const void* streams[] = { buffer, context->dummyVector };
-    CHK_GXM(sceGxmPrecomputedDrawSetAllVertexStreams(&precomputed, streams));
-    sceGxmPrecomputedDrawSetParams(&precomputed, primTypeTable[primType], SCE_GXM_INDEX_FORMAT_U16, indices, drawCount);
+    stateSize = 0;
+    GetVertexShader(gxmContext::VARIANT_FULL);
 
     nStrips = 0;
     strips = NULL;
@@ -767,10 +882,35 @@ gxmPrimBuffer::~gxmPrimBuffer()
     radMemorySpaceFree(radMemorySpace_User, radMemoryGetCurrentAllocator(), buffer);
     if(indices)
         radMemorySpaceFree(radMemorySpace_User, radMemoryGetCurrentAllocator(), indices);
-    radMemorySpaceFreeAligned(radMemorySpace_User, radMemoryGetCurrentAllocator(), state);
+    for(int v = 0; v < gxmContext::NUM_VERTEX_VARIANTS; v++)
+        if(states[v])
+            radMemorySpaceFreeAligned(radMemorySpace_User, radMemoryGetCurrentAllocator(), states[v]);
 
     context->ADD_STAT(PDDI_STAT_BUFFERED_COUNT, -1);
     context->ADD_STAT(PDDI_STAT_BUFFERED_ALLOC, -mem / 1024.0f);
+}
+
+SceGxmVertexProgram* gxmPrimBuffer::GetVertexShader(int variant)
+{
+    if(vertexShaders[variant] == NULL)
+    {
+        gxmProgram* program = context->vertexPrograms[skinned ? 1 : 0][variant];
+        SceGxmVertexProgram* shader = program->PatchVertexShader(vertexType, stride);
+        const unsigned size = sceGxmGetPrecomputedDrawSize(shader);
+        radMemorySetAllocationName("gxmPrimBuffer");
+        states[variant] = (uint8_t*)radMemorySpaceAllocAligned(
+            radMemorySpace_User,
+            radMemoryGetCurrentAllocator(),
+            size,
+            16);
+        stateSize += size;
+        CHK_GXM(sceGxmPrecomputedDrawInit(&precomputed[variant], shader, states[variant]));
+        const void* streams[] = { buffer, context->dummyVector };
+        CHK_GXM(sceGxmPrecomputedDrawSetAllVertexStreams(&precomputed[variant], streams));
+        sceGxmPrecomputedDrawSetParams(&precomputed[variant], primTypeTable[primType], SCE_GXM_INDEX_FORMAT_U16, indices, drawCount);
+        vertexShaders[variant] = shader;
+    }
+    return vertexShaders[variant];
 }
 
 pddiPrimBufferStream* gxmPrimBuffer::Lock()
@@ -792,6 +932,12 @@ void gxmPrimBuffer::Unlock(pddiPrimBufferStream* stream)
 
     if(colour)
         colour -= total * stride;
+
+    if(skinWeights)
+        skinWeights = (float*)((char*)skinWeights - total * stride);
+
+    if(skinIndices)
+        skinIndices -= total * stride;
 
     valid = false;
 }
@@ -820,7 +966,9 @@ void gxmPrimBuffer::SetDrawCount(unsigned nVertex)
     if(nVertex != drawCount)
     {
         drawCount = nVertex;
-        sceGxmPrecomputedDrawSetParams(&precomputed, primTypeTable[primType], SCE_GXM_INDEX_FORMAT_U16, indices, drawCount);
+        for(int v = 0; v < gxmContext::NUM_VERTEX_VARIANTS; v++)
+            if(vertexShaders[v])
+                sceGxmPrecomputedDrawSetParams(&precomputed[v], primTypeTable[primType], SCE_GXM_INDEX_FORMAT_U16, indices, drawCount);
     }
 }
 
@@ -831,8 +979,12 @@ void gxmPrimBuffer::Display(void)
         valid = true;
     }
 
-    sceGxmSetFrontPolygonMode(context->context, polyModeTable[primType]);
-    CHK_GXM(sceGxmDrawPrecomputed(context->context, &precomputed));
+    if(context->lastPolygonMode != (int)polyModeTable[primType])
+    {
+        context->lastPolygonMode = (int)polyModeTable[primType];
+        sceGxmSetFrontPolygonMode(context->context, polyModeTable[primType]);
+    }
+    CHK_GXM(sceGxmDrawPrecomputed(context->context, &precomputed[context->currentVariant]));
 }
 
 /*
@@ -857,10 +1009,123 @@ void gxmContext::DrawPrimBuffer(pddiShader* mat, pddiPrimBuffer* buffer)
 
     pddiBaseShader* material = (pddiBaseShader*)mat;
     ADD_STAT(PDDI_STAT_MATERIAL_OPS, !material->IsCurrent());
-    SetVertexShader(((gxmPrimBuffer*)buffer)->GetVertexShader());
+    currentDrawBuffer = (gxmPrimBuffer*)buffer;
     material->SetMaterial();
 
     ((gxmPrimBuffer*)buffer)->Display();
+}
+
+void gxmContext::DrawSkinned(pddiShader* mat, pddiPrimBuffer* buffer, const pddiMatrix* const* palette, unsigned count)
+{
+    if(!mat)
+        mat = defaultShader;
+
+    FlushStencilState();
+
+    pddiBaseShader* material = (pddiBaseShader*)mat;
+    ADD_STAT(PDDI_STAT_MATERIAL_OPS, !material->IsCurrent());
+    currentDrawBuffer = (gxmPrimBuffer*)buffer;
+
+    // The palette is part of the uniform buffer, so this draw always needs a fresh one, and the
+    // next draw must not reuse it as if it held only what the shadow knows about.
+    InvalidateUniformShadow();
+    vertexUniformBuffer = NULL;
+    material->SetMaterial();
+    if(vertexUniformBuffer != NULL)
+    {
+        vertexProgram->SetBones(vertexUniformBuffer, palette, count);
+        ((gxmPrimBuffer*)buffer)->Display();
+    }
+    InvalidateUniformShadow();
+}
+
+int gxmContext::GetVertexVariant(const gxmTextureEnv* texEnv) const
+{
+    if(!variantsAvailable)
+        return VARIANT_FULL;
+    if(!texEnv->lit)
+        return VARIANT_UNLIT;
+    const pddiColour s = texEnv->specular;
+    return (s.Red() | s.Green() | s.Blue()) != 0 ? VARIANT_FULL : VARIANT_DIFFUSE;
+}
+
+void gxmContext::ReleaseProgram(gxmProgram*& program)
+{
+    if(program)
+    {
+        program->Release();
+        program = NULL;
+    }
+}
+
+static gxmProgram* MakeProgram(SceGxmShaderPatcher* patcher, gxmShaderId id)
+{
+    unsigned size = 0;
+    void* gxp = gxmShaderLoad(id, &size);
+    if(gxp == NULL)
+        return NULL;
+    gxmProgram* program = new gxmProgram(patcher, gxp, size);
+    program->AddRef();
+    gxmShaderBuildFree(gxp);
+    return program;
+}
+
+void gxmContext::LoadShaderVariants()
+{
+    if(!g_gxmFastShaders)
+    {
+        rReleasePrintf("[gxm] shader variants off (fastshaders=0)\n");
+        return;
+    }
+
+    // All of a set or none of it: a vertex variant is useless without its fragment programs.
+    gxmProgram* diffuse = MakeProgram(shaderPatcher, GXM_SHADER_V_DIFFUSE);
+    gxmProgram* unlit = MakeProgram(shaderPatcher, GXM_SHADER_V_UNLIT);
+    colorNoSpecProgram = MakeProgram(shaderPatcher, GXM_SHADER_F_COLOR_NOSPEC);
+    textureNoSpecProgram = MakeProgram(shaderPatcher, GXM_SHADER_F_TEXTURE_NOSPEC);
+    alphaTestNoSpecProgram = MakeProgram(shaderPatcher, GXM_SHADER_F_ALPHA_NOSPEC);
+    if(diffuse && unlit && colorNoSpecProgram && textureNoSpecProgram && alphaTestNoSpecProgram)
+    {
+        vertexPrograms[0][VARIANT_DIFFUSE] = diffuse;
+        vertexPrograms[0][VARIANT_UNLIT] = unlit;
+        variantsAvailable = true;
+
+        if(g_gxmHardwareSkinning)
+        {
+            gxmProgram* skin[NUM_VERTEX_VARIANTS] = {
+                MakeProgram(shaderPatcher, GXM_SHADER_V_SKIN_FULL),
+                MakeProgram(shaderPatcher, GXM_SHADER_V_SKIN_DIFFUSE),
+                MakeProgram(shaderPatcher, GXM_SHADER_V_SKIN_UNLIT)
+            };
+            bool ok = true;
+            for(int v = 0; v < NUM_VERTEX_VARIANTS; v++)
+                ok = ok && skin[v] && skin[v]->HasBones();
+            if(ok)
+            {
+                for(int v = 0; v < NUM_VERTEX_VARIANTS; v++)
+                    vertexPrograms[1][v] = skin[v];
+                hardwareSkinning = true;
+                extSkin = new gxmHardwareSkinning(this);
+            }
+            else
+            {
+                for(int v = 0; v < NUM_VERTEX_VARIANTS; v++)
+                    ReleaseProgram(skin[v]);
+            }
+        }
+    }
+    else
+    {
+        ReleaseProgram(diffuse);
+        ReleaseProgram(unlit);
+        ReleaseProgram(colorNoSpecProgram);
+        ReleaseProgram(textureNoSpecProgram);
+        ReleaseProgram(alphaTestNoSpecProgram);
+    }
+    gxmShaderSetInUse(variantsAvailable, hardwareSkinning);
+    rReleasePrintf("[gxm] shader variants: %s, hardware skinning: %s\n",
+                   variantsAvailable ? "on" : "off (not compiled yet, see the Options menu)",
+                   hardwareSkinning ? "on" : "off (NEON software skinning)");
 }
 
 // lighting
@@ -1112,6 +1377,10 @@ pddiExtension* gxmContext::GetExtension(unsigned extID)
     {
         case PDDI_EXT_GAMMACONTROL :
             return extGamma;
+        case PDDI_EXT_HARDWARE_SKINNING :
+            if(hardwareSkinning)
+                return extSkin;
+            break;
     }
 
     return pddiBaseContext::GetExtension(extID);
@@ -1123,6 +1392,8 @@ bool gxmContext::VerifyExtension(unsigned extID)
     {
         case PDDI_EXT_GAMMACONTROL :
             return true;
+        case PDDI_EXT_HARDWARE_SKINNING :
+            return hardwareSkinning;
     }
 
     return pddiBaseContext::VerifyExtension(extID);
@@ -1227,10 +1498,14 @@ void gxmContext::DrainPrimPool()
 
 gxmProgram* gxmContext::GetFragmentProgram(const gxmTextureEnv* texEnv)
 {
+    const bool noSpecular = GetVertexVariant(texEnv) != VARIANT_FULL;
     if(texEnv->texture)
-        return texEnv->alphaTest ? alphaTestProgram : textureProgram;
-    else
-        return colorProgram;
+    {
+        if(texEnv->alphaTest)
+            return noSpecular ? alphaTestNoSpecProgram : alphaTestProgram;
+        return noSpecular ? textureNoSpecProgram : textureProgram;
+    }
+    return noSpecular ? colorNoSpecProgram : colorProgram;
 }
 
 void gxmContext::MidSceneFlushAndWait()
@@ -1266,18 +1541,28 @@ bool gxmContext::ReserveFragmentUniforms()
 
 void gxmContext::SetTextureEnvironment(const gxmTextureEnv* texEnv, gxmProgram* fragProgram)
 {
+    // Bind the vertex program of this draw: the uniform buffer reserved below is sized for it.
+    if(currentDrawBuffer != NULL)
+    {
+        currentVariant = GetVertexVariant(texEnv);
+        vertexProgram = vertexPrograms[currentDrawBuffer->IsSkinned() ? 1 : 0][currentVariant];
+        SetVertexShader(currentDrawBuffer->GetVertexShader(currentVariant));
+    }
+
 #if RAD_GXM_UNIFORM_REUSE
     // Work out what this draw needs, and only reserve + fill a new vertex uniform buffer if it
     // differs from what the bound one holds. The values are compared after the same
     // transformations the upload applies (unlit draws turn every light off, etc).
-    VertexUniformShadow now;
+    // Most draws have a new modelview: find that out first, before anything gets computed or
+    // copied for the comparison (the rest of 'now' is needed for the upload either way).
     const pddiMatrix* modelview = state.matrixStack[PDDI_MATRIX_MODELVIEW]->Top();
-    now.valid = true;
-    now.lit = texEnv->lit;
-    now.normalWritten = texEnv->lit;
-    now.modelview = *modelview;
-    now.projection = projection;
-    now.ambientLight = state.lightingState->ambient;
+    bool same = uniformShadow.valid &&
+                (!texEnv->lit || uniformShadow.normalWritten) &&    // an unlit buffer holds no normal matrix
+                memcmp(&uniformShadow.modelview, modelview, sizeof(pddiMatrix)) == 0 &&
+                memcmp(&uniformShadow.projection, &projection, sizeof(pddiMatrix)) == 0 &&
+                memcmp(&uniformShadow.ambientLight, &state.lightingState->ambient, sizeof(pddiColour)) == 0;
+
+    VertexUniformShadow now;
     if(texEnv->lit)
     {
         now.material[0] = texEnv->ambient;
@@ -1295,12 +1580,7 @@ void gxmContext::SetTextureEnvironment(const gxmTextureEnv* texEnv, gxmProgram* 
         now.lightColour[i] = state.lightingState->light[i].colour;
     }
 
-    bool same = uniformShadow.valid &&
-                memcmp(&uniformShadow.modelview, &now.modelview, sizeof(pddiMatrix)) == 0 &&
-                memcmp(&uniformShadow.projection, &now.projection, sizeof(pddiMatrix)) == 0 &&
-                memcmp(&uniformShadow.ambientLight, &now.ambientLight, sizeof(pddiColour)) == 0 &&
-                memcmp(uniformShadow.material, now.material, sizeof(now.material)) == 0 &&
-                (!now.lit || uniformShadow.normalWritten);   // an unlit buffer holds no normal matrix
+    same = same && memcmp(uniformShadow.material, now.material, sizeof(now.material)) == 0;
     for(int i = 0; same && i < PDDI_MAX_LIGHTS; i++)
     {
         same = memcmp(uniformShadow.lightDir[i], now.lightDir[i], sizeof(float) * 4) == 0;
@@ -1326,10 +1606,16 @@ void gxmContext::SetTextureEnvironment(const gxmTextureEnv* texEnv, gxmProgram* 
         ++uniformUploads;
         for(int i = 0; i < PDDI_MAX_LIGHTS; i++)
             vertexProgram->SetLightValues(vertexUniformBuffer, i, now.lightDir[i], now.lightColour[i], now.lightAtten[i]);
-        vertexProgram->SetAmbientLight(vertexUniformBuffer, now.ambientLight);
+        vertexProgram->SetAmbientLight(vertexUniformBuffer, state.lightingState->ambient);
         vertexProgram->SetModelViewMatrix(vertexUniformBuffer, modelview, texEnv->lit);
         vertexProgram->SetProjectionMatrix(vertexUniformBuffer, &projection);
         vertexProgram->SetMaterialColours(vertexUniformBuffer, now.material[0], now.material[1], now.material[2], now.material[3]);
+        now.valid = true;
+        now.lit = texEnv->lit;
+        now.normalWritten = texEnv->lit;
+        now.modelview = *modelview;
+        now.projection = projection;
+        now.ambientLight = state.lightingState->ambient;
         uniformShadow = now;
     }
 #else
