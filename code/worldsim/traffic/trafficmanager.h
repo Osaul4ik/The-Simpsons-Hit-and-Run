@@ -261,7 +261,7 @@ private:
         Vehicle* v, 
         int& nIntersectionsUpdated ); 
 
-    void SetVehicleFadeAlpha( Vehicle* v, const rmt::Vector& pPos );
+    void SetVehicleFadeAlpha( Vehicle* v, const rmt::Vector& center, unsigned int millisecondsSinceAdded );
 
     bool AttemptResurrection( TrafficVehicle* tv );
 

@@ -58,6 +58,8 @@ public:
     unsigned int mMillisecondsOutOfSight;
     bool        mOutOfSight;
 
+    unsigned int mMillisecondsSinceAdded;
+
     
 
 private:
@@ -81,6 +83,7 @@ inline TrafficVehicle::TrafficVehicle() :
     mCanBeResurrected( true ),
     mMillisecondsOutOfSight( 0 ),
     mOutOfSight( true ),
+    mMillisecondsSinceAdded( 0 ),
     mVehicle( NULL ),
     mHusk( NULL ),
     mIsActive( false ),

@@ -29,6 +29,25 @@ void LogProgress( const char* stage ) __attribute__((weak));
 #include <p3d/vitajobs.hpp>
 #include <pddi/pddiext.hpp>
 
+// Time in the draw calls in the log (code/debug/vitaprof.cpp). This is the part of rendering a
+// thread of its own could take over, without the game code above it having to change.
+#ifdef RAD_LOG
+#include <psp2/kernel/processmgr.h>
+extern "C" void vitaProfAdd(const char* name, unsigned microseconds);
+namespace
+{
+    struct GxmDrawTimer
+    {
+        SceUInt32 start;
+        GxmDrawTimer() : start(sceKernelGetProcessTimeLow()) {}
+        ~GxmDrawTimer() { vitaProfAdd("GXM: draw calls", sceKernelGetProcessTimeLow() - start); }
+    };
+}
+#define GXM_DRAW_TIMER() GxmDrawTimer gxmDrawTimer
+#else
+#define GXM_DRAW_TIMER()
+#endif
+
 // Runtime switches, from vita.cfg ("fastshaders=0", "hwskin=0"; code/main/win32main.cpp)
 extern int g_gxmFastShaders;
 extern int g_gxmHardwareSkinning;
@@ -559,6 +578,7 @@ pddiPrimStream* gxmContext::BeginPrims(pddiShader* mat, pddiPrimType primType, u
 
 void gxmContext::EndPrims(pddiPrimStream* stream)
 {
+    GXM_DRAW_TIMER();
     pddiBaseContext::EndPrims(stream);
     gxmPrimStream* gxmstream = (gxmPrimStream*)stream;
     gxmstream->buffer->Unlock(thePrimStream.stream);
@@ -1005,6 +1025,7 @@ protected:
 
 void gxmContext::DrawPrimBuffer(pddiShader* mat, pddiPrimBuffer* buffer)
 {
+    GXM_DRAW_TIMER();
     if(!mat)
         mat = defaultShader;
 
@@ -1020,6 +1041,7 @@ void gxmContext::DrawPrimBuffer(pddiShader* mat, pddiPrimBuffer* buffer)
 
 void gxmContext::DrawSkinned(pddiShader* mat, pddiPrimBuffer* buffer, const pddiMatrix* const* palette, unsigned count)
 {
+    GXM_DRAW_TIMER();
     if(!mat)
         mat = defaultShader;
 

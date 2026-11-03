@@ -64,11 +64,13 @@ TrafficManager* TrafficManager::mInstance = NULL;
     const float TrafficManager::REMOVE_RADIUS = 35.0f;
     const float TrafficManager::INITIAL_ADD_RADIUS = 20.0f;
 #else
+    // All measured from the traffic centre, which sits CENTER_OFFSET ahead of the player along
+    // the camera. A car has fully faded out by the time it reaches REMOVE_RADIUS.
     const float TrafficManager::FADE_RADIUS = 85.0;
-    const float TrafficManager::CENTER_OFFSET = 40.0f;
-    const float TrafficManager::ADD_RADIUS = 65.0f;
-    const float TrafficManager::REMOVE_RADIUS = 75.0f;
-    const float TrafficManager::INITIAL_ADD_RADIUS = 100.0f;
+    const float TrafficManager::CENTER_OFFSET = 55.0f;
+    const float TrafficManager::ADD_RADIUS = 90.0f;
+    const float TrafficManager::REMOVE_RADIUS = 105.0f;
+    const float TrafficManager::INITIAL_ADD_RADIUS = 130.0f;
 #endif
 
 const unsigned int TrafficManager::MILLISECONDS_BETWEEN_REMOVE = 200;
@@ -78,6 +80,9 @@ const unsigned int TrafficManager::MILLISECONDS_POPULATE_WORLD = 3000;
 const unsigned int MILLISECONDS_STUNNED_AFTER_DEACTIVATED = 3000;
 
 const int MAX_TRAFFIC = 5;
+
+// A new car comes in over this time, wherever on the edge of the traffic radius it appears.
+const unsigned int MILLISECONDS_FADE_IN = 750;
 
 // Define all the swatch colours here...
 TrafficManager::SwatchColour TrafficManager::sSwatchColours[] =
@@ -944,7 +949,11 @@ BEGIN_PROFILE( "Traffic Man: Update AI & Intersections" );
 
         // Determine fade alpha.. All active (in the world) traffic vehicles
         // fade. Whether or not they're in VL_TRAFFIC or VL_PHYSICS is irrelevant
-        SetVehicleFadeAlpha( v, pPos );
+        if( traffV->mMillisecondsSinceAdded < MILLISECONDS_FADE_IN )
+        {
+            traffV->mMillisecondsSinceAdded += milliseconds;
+        }
+        SetVehicleFadeAlpha( v, center, traffV->mMillisecondsSinceAdded );
 
         // figure out if we should allow entering the traffic vehicle
         const float GETIN_SPEED_THRESHOLD_MPS = 4.5f; // this is as fast as character can run
@@ -1536,6 +1545,8 @@ bool TrafficManager::AddTraffic(Lane* lane, TrafficVehicle* tv)
     tv->mMillisecondsDeactivated = 0;
     tv->mMillisecondsOutOfSight = 0;
     tv->mOutOfSight = true;
+    // Cars placed while the world is being populated are there before the player can see them.
+    tv->mMillisecondsSinceAdded = mMillisecondsPopulateWorld > 0 ? MILLISECONDS_FADE_IN : 0;
 
     ::GetEventManager()->TriggerEvent( EVENT_TRAFFIC_SPAWN, v );
 
@@ -1743,29 +1754,34 @@ void TrafficManager::UpdateIntersection( unsigned int milliseconds, Vehicle* v, 
     }
 }
 
-void TrafficManager::SetVehicleFadeAlpha( Vehicle* v, const rmt::Vector& pPos )
+void TrafficManager::SetVehicleFadeAlpha( Vehicle* v, const rmt::Vector& center, unsigned int millisecondsSinceAdded )
 {
     rAssert( v );
 
     rmt::Vector vPos;
     v->GetPosition( &vPos );
-    float distFromPlayer = (pPos - vPos).Length(); // *** SQUARE ROOT! ***
+    float distFromCenter = (center - vPos).Length(); // *** SQUARE ROOT! ***
 
+    // Measured from the centre of the traffic radius rather than from the player, so the car has
+    // the same alpha on any side at the moment it is removed: none.
     float fadeMinLimit = TrafficManager::FADE_RADIUS;
-    float fadeMaxLimit = TrafficManager::ADD_RADIUS + TrafficManager::CENTER_OFFSET;
-    int fadeAlpha = 255;
-    if( fadeMinLimit <= distFromPlayer && distFromPlayer <= fadeMaxLimit )
+    float fadeMaxLimit = TrafficManager::REMOVE_RADIUS;
+    float fade = 1.0f;
+    if( distFromCenter >= fadeMaxLimit )
     {
-        // if we're in the fading zone, gotta change fade alpha
-        float fadeRatio = (distFromPlayer - fadeMinLimit)/(fadeMaxLimit - fadeMinLimit);
-        fadeAlpha = (int) (255.0f * (1.0f - fadeRatio));
+        fade = 0.0f;
     }
-    else if( distFromPlayer > fadeMaxLimit )
+    else if( distFromCenter > fadeMinLimit )
     {
-        fadeAlpha = 0;
+        fade = (fadeMaxLimit - distFromCenter)/(fadeMaxLimit - fadeMinLimit);
     }
 
-    v->mGeometryVehicle->SetFadeAlpha( fadeAlpha );
+    if( millisecondsSinceAdded < MILLISECONDS_FADE_IN )
+    {
+        fade *= (float)millisecondsSinceAdded / (float)MILLISECONDS_FADE_IN;
+    }
+
+    v->mGeometryVehicle->SetFadeAlpha( (int) (255.0f * fade) );
 }
 
 bool TrafficManager::AttemptResurrection( TrafficVehicle* tv )
