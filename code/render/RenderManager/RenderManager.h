@@ -59,6 +59,10 @@ class RenderManager
    public EventListener
 {
 public:
+   // A zone is streaming / the player is getting ahead of the streaming.
+   bool IsZoneLoading() const { return mbDynaLoading; }
+   bool IsZoneLoadUrgent() const { return mbDrivingTooFastLoad || mZELs.mUseSize > 0; }
+
 
    // Static Methods (for creating, destroying and acquiring an instance 
    // of the RenderManager)

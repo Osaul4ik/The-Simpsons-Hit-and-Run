@@ -1000,11 +1000,17 @@ MEMTRACK_PUSH_GROUP( "WorldRenderLayer" );
    mpWorldScene = new WorldScene;
    mpWorldScene->Init(msMaxGuts);
 
-   mStaticLoadLists.Allocate(7);
-   mLoadLists.Allocate(7);
+   // One list per resident zone: the 3 or 4 around the player, plus the zone cache on the Vita.
+#ifdef RAD_VITA
+   const int numLoadLists = 12;
+#else
+   const int numLoadLists = 7;
+#endif
+   mStaticLoadLists.Allocate(numLoadLists);
+   mLoadLists.Allocate(numLoadLists);
 
-   mLoadLists.AddUse(7);
-   mStaticLoadLists.AddUse(7);
+   mLoadLists.AddUse(numLoadLists);
+   mStaticLoadLists.AddUse(numLoadLists);
 
    mWorldSpheres.Allocate(10);
 
@@ -1013,7 +1019,7 @@ MEMTRACK_PUSH_GROUP( "WorldRenderLayer" );
    mCurLoadIndex  = -1;
 
    int i;
-   for(i=0;i<7;i++)
+   for(i=0;i<numLoadLists;i++)
    {
       mStaticLoadLists[i].AllocateAll(mnLoadListRefs);
       mLoadLists[i] = &(mStaticLoadLists[i]);

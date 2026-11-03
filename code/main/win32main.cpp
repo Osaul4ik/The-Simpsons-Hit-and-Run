@@ -73,11 +73,16 @@ static void ProcessCommandLineArgumentsFromFile();
 //     fps=30            30 (default), 50 or 60; also chosen in the game's Options menu,
 //                       which rewrites this line. Sets the CPU clock too: 60 fps runs at
 //                       444 MHz, 50 and 30 fps at 333 MHz (the GPU stays at 166 MHz)
-//     zonecache=6       max zones kept resident after leaving them (0 = off)
+//     zonecache=8       max zones kept resident after leaving them (0 = off)
+//     smoothload=1      0 = the loader always gets 4 ms per frame during play, instead of what
+//                       the frame has left
 //     log=0             1 = write ux0:data/simpsons/log.txt; 0 = no log and no timing for it
 //     prof=0            1 = also time every mark and add the [prof] table to the log (costs
 //                       about 2 ms per frame, so leave it off when judging the frame rate)
 //     soundthread=1     0 = service the sound on the main thread
+//     smokebudget=25    how many whole screens the particles of a frame may cover, in tenths;
+//                       lower = smoke costs less and thins out sooner, 0 = no limit and no
+//                       fading near the camera
 //     trilinear=1       0 = nearest mip level instead of blending between levels
 //     fastshaders=1     0 = only the packaged shaders, no runtime compiled variants
 //     hwskin=1          0 = skin on the CPU (NEON) even when the shaders compiled
@@ -86,7 +91,7 @@ static void ProcessCommandLineArgumentsFromFile();
 #ifdef RAD_VITA
 #include <psp2/power.h>
 #ifndef RAD_VITA_ZONE_CACHE_MAX_ZONES
-#define RAD_VITA_ZONE_CACHE_MAX_ZONES 6
+#define RAD_VITA_ZONE_CACHE_MAX_ZONES 8
 #endif
 #ifndef RAD_VITA_FRAME_RATE
 #define RAD_VITA_FRAME_RATE 30            // 30, 50 or 60
@@ -96,6 +101,8 @@ int g_gxmFrameRate          = RAD_VITA_FRAME_RATE;             // read by gxmDis
 #ifdef RAD_LOG
 extern int g_vitaProfEnabled;                                  // code/debug/vitaprof.cpp
 #endif
+extern float g_vitaParticleBudget;                             // p3d/effects/particleemitter.cpp
+int g_vitaSmoothLoad        = 1;                               // read by Game::Run
 extern int g_vitaSoundWorker;                                  // code/sound/soundmanager.cpp
 static int s_vitaProf       = 0;
 int g_gxmTrilinear          = 1;                               // read by gxmMat::SetDevPass
@@ -142,6 +149,14 @@ static void LoadVitaConfig()
         else if( sscanf( line, "prof=%d", &v ) == 1 )
         {
             s_vitaProf = v != 0;
+        }
+        else if( sscanf( line, "smoothload=%d", &v ) == 1 )
+        {
+            g_vitaSmoothLoad = v != 0;
+        }
+        else if( sscanf( line, "smokebudget=%d", &v ) == 1 )
+        {
+            g_vitaParticleBudget = (float)v * 0.1f;
         }
         else if( sscanf( line, "soundthread=%d", &v ) == 1 )
         {

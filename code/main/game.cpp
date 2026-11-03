@@ -53,6 +53,12 @@
 #include <sound/soundmanager.h>
 #include <presentation/presentation.h>
 #include <presentation/fmvplayer/fmvplayer.h>
+#include <render/RenderManager/RenderManager.h>
+#include <p3d/fileftt.hpp>
+#ifdef RAD_VITA
+extern int g_vitaSmoothLoad;     // code/main/win32main.cpp
+int VitaGetFrameRate();
+#endif
 #include <input/inputmanager.h>
 
 //******************************************************************************
@@ -509,6 +515,10 @@ void Game::Run()
 
         BEGIN_PROFILE( "GameLoop" )
 
+#ifdef RAD_VITA
+        const radTime64 frameStartUs = radTimeGetMicroseconds64();
+#endif
+
 #ifdef GAME_HITCH_LOG
         radTime64 hitchMark[6] = { 0, 0, 0, 0, 0, 0 };
         const int hitchContext = mpGameFlow ? (int)mpGameFlow->GetCurrentContext() : -1;
@@ -636,6 +646,30 @@ void Game::Run()
         // Spin Pure3D async loading.
         //
         DEMOPROFILE( g_DemoProfiler.Start(PROFILE_CHANNEL_LOAD); )
+#ifdef RAD_VITA
+        if( g_vitaSmoothLoad && mpGameFlow->GetCurrentContext() == CONTEXT_GAMEPLAY )
+        {
+            static unsigned zoneLoadStart = 0;
+            RenderManager* renderManager = GetRenderManager();
+            unsigned zoneLoadingMs = 0;
+            if( renderManager->IsZoneLoading() )
+            {
+                if( zoneLoadStart == 0 )
+                {
+                    zoneLoadStart = newTime;
+                }
+                zoneLoadingMs = newTime - zoneLoadStart;
+            }
+            else
+            {
+                zoneLoadStart = 0;
+            }
+            const int frameLeftUs = 1000000 / VitaGetFrameRate() -
+                                    (int)( radTimeGetMicroseconds64() - frameStartUs );
+            tFileFTT::SetGameplaySlice( tFileFTT::GameplaySliceUs( frameLeftUs, zoneLoadingMs,
+                                                                   renderManager->IsZoneLoadUrgent() ) );
+        }
+#endif
         p3d::loadManager->SwitchTask();
         DEMOPROFILE( g_DemoProfiler.Stop(PROFILE_CHANNEL_LOAD); )
 

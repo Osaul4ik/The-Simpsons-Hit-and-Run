@@ -129,6 +129,45 @@ void tFileFTT::YieldIfDueOnLoader(void)
 }
 
 //--------------------------------------------------------------------------
+// How long the loader may run this frame during play, in microseconds. As a rule what the frame has
+// left before its deadline, so a zone comes in little by little and the frame rate does not notice.
+// That cannot go on for long: the zone has to be there before the player is, so a load that takes
+// its time gets more whatever the frame has left, and most when the player is already ahead of it.
+unsigned tFileFTT::GameplaySliceUs(int frameLeftUs, unsigned zoneLoadingMs, bool urgent)
+{
+    const int MOST = 8000;
+    int least = 1500;
+    if( urgent )
+    {
+        least = MOST;
+    }
+    else if( zoneLoadingMs >= 3000 )
+    {
+        least = 6000;
+    }
+    else if( zoneLoadingMs >= 1500 )
+    {
+        least = 4000;
+    }
+    if( frameLeftUs < least )
+    {
+        return (unsigned)least;
+    }
+    return (unsigned)( frameLeftUs < MOST ? frameLeftUs : MOST );
+}
+
+void tFileFTT::SetGameplaySlice(unsigned microseconds)
+{
+#ifdef RAD_VITA
+    if( !gSleepWhileWaiting )   // loading screens keep their long slice
+    {
+        gYieldTime = microseconds;
+    }
+#else
+    (void)microseconds;
+#endif
+}
+
 bool tFileFTT::IsOnLoadingScreen()
 {
 #ifdef RAD_VITA

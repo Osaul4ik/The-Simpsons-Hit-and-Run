@@ -58,6 +58,8 @@ public:
 
     pddiShadeTextureTable* GetTextureTable(void) { return textureTable;}
     pddiShadeIntTable*     GetIntTable(void)     { return intTable;}
+    int GetBlendMode(void) const { return texEnv[0].alphaBlendMode; }
+    void SetNoMipBlend(bool b) { noMipBlend = b; }  // for what is too soft to show the step between levels
     pddiShadeFloatTable*   GetFloatTable(void)   { return floatTable;}
     pddiShadeColourTable*  GetColourTable(void)  { return colourTable;}
 
@@ -106,6 +108,7 @@ private:
     SceGxmFragmentProgram* shader;
     int appliedContextWriteMask;    // context mask 'shader' was built for
     gxmTextureEnv texEnv[gxmMaxPasses];
+    bool noMipBlend = false;
 };
 
 #endif

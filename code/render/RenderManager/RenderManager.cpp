@@ -103,7 +103,7 @@ void LogProgressBrief( const char* stage );
 bool ZoneCacheHasHeadroom();
 
 // Max deferred (resident, not in use) zones; 0 disables the cache. Runtime value from win32main.cpp
-// (default RAD_VITA_ZONE_CACHE_MAX_ZONES = 6, override with "zonecache=N" in ux0:data/simpsons/vita.cfg).
+// (default RAD_VITA_ZONE_CACHE_MAX_ZONES = 8, override with "zonecache=N" in ux0:data/simpsons/vita.cfg).
 // The log of a full play session never held more than 4 zones, and the zone count did not change the
 // frame time, so a small cap is enough: it only has to cover the zones around the player.
 #ifdef RAD_VITA
@@ -672,6 +672,10 @@ bool RenderManager::LoadAllNeededData
 // Constraints: 
 //
 //==============================================================================
+#ifdef RAD_VITA
+void VitaParticleNextFrame();     // p3d/effects/particleemitter.cpp
+#endif
+
 void RenderManager::ContextUpdate( unsigned int iElapsedTime )
 {
     // On the PS2, use a minimum blur all the time    
@@ -720,6 +724,9 @@ void RenderManager::ContextUpdate( unsigned int iElapsedTime )
 
     BEGIN_PROFILE( "Begin Frame" );
     p3d::context->BeginFrame();
+#ifdef RAD_VITA
+    VitaParticleNextFrame();
+#endif
     END_PROFILE( "Begin Frame" );
 
     // Render Stuff; call your Render shots, Tex.

@@ -22,6 +22,76 @@
 #include <pddi/pddiext.hpp>
 #include <float.h>
 
+#if defined( RAD_VITA ) && defined( RAD_GXM )
+#define VITA_PARTICLE_BUDGET
+#include <pddi/gxm/material.hpp>
+
+//=============================================================================
+// Smoke right in front of the camera covers the whole screen several times over with blended
+// pixels, and that is what makes the frame rate drop: the cost is in the pixels, not in the number
+// of particles. Two things keep it down:
+//  - a particle fades out as it comes close to the camera and is not drawn at all when it is very
+//    close, where it would be the largest and show the least;
+//  - when the particles of a frame still cover more of the screen than g_vitaParticleBudget
+//    (in whole screens, "smokebudget=" in vita.cfg, in tenths), only a part of them is drawn, a
+//    little more opaque so that the smoke looks as thick. Which particle stays depends on its
+//    address, so the same ones stay from frame to frame and nothing flickers.
+//=============================================================================
+float g_vitaParticleBudget = 2.5f;
+
+namespace
+{
+    const float NEAR_INVISIBLE  = 0.5f;     // metres from the camera
+    const float NEAR_FULL       = 2.0f;
+    // tan(horizontal fov / 2) * tan(vertical fov / 2) * 4 of a roughly 90 degree 16:9 view
+    const float VIEW_AREA_AT_1M = 2.27f;
+    const float MAX_OPACITY_GAIN = 1.5f;
+
+    float s_coverageThisFrame = 0.0f;
+    float s_keepFraction = 1.0f;
+
+    inline float ParticleNearFade( float z )
+    {
+        if( z <= NEAR_INVISIBLE )
+        {
+            return 0.0f;
+        }
+        return z >= NEAR_FULL ? 1.0f : ( z - NEAR_INVISIBLE ) / ( NEAR_FULL - NEAR_INVISIBLE );
+    }
+
+    // part of the screen a sprite with this half diagonal covers: its area is 2 * size * size
+    inline float ParticleCoverage( float size, float z )
+    {
+        const float coverage = 2.0f * size * size / ( z * z * VIEW_AREA_AT_1M );
+        return coverage < 1.0f ? coverage : 1.0f;
+    }
+
+    inline bool ParticleKept( const void* particle, float keepFraction )
+    {
+        const unsigned hash = ( (unsigned)(size_t)particle >> 4 ) * 2654435761u >> 24;
+        return (float)hash < keepFraction * 256.0f;
+    }
+
+    inline int ScaleChannel( int value, float scale )
+    {
+        const int scaled = (int)( (float)value * scale );
+        return scaled < 255 ? scaled : 255;
+    }
+}
+
+void VitaParticleNextFrame()
+{
+    float target = 1.0f;
+    if( g_vitaParticleBudget > 0.0f && s_coverageThisFrame > g_vitaParticleBudget )
+    {
+        target = g_vitaParticleBudget / s_coverageThisFrame;
+    }
+    // over a few frames, so that particles do not vanish all at once when the smoke comes
+    s_keepFraction += ( target - s_keepFraction ) * 0.25f;
+    s_coverageThisFrame = 0.0f;
+}
+#endif
+
 //*****************************************************************************
 //
 // Class tBaseEmitterFactory
@@ -791,9 +861,67 @@ void tSpriteEmitter::Display()
 
         pddiPrimStream* stream = p3d::pddi->BeginPrims(shader->GetShader(), PDDI_PRIM_TRIANGLES, PDDI_V_CT, 6 * numLiveParticles);
 
+#ifdef VITA_PARTICLE_BUDGET
+        // Alpha blended particles fade through their alpha. Additive ones through their colour,
+        // their alpha alone may not count. The other modes do not fade: they are drawn or not.
+        const int blendMode = ( (gxmMat*)shader->GetShader() )->GetBlendMode();
+        // Smoke has no detail to lose, and blending two mip levels costs every one of its pixels.
+        ( (gxmMat*)shader->GetShader() )->SetNoMipBlend( true );
+        const bool fadeAlpha = blendMode == PDDI_BLEND_ALPHA;
+        const bool fadeColour = blendMode == PDDI_BLEND_ADD || blendMode == PDDI_BLEND_ADDMODULATEALPHA;
+        const float keepFraction = g_vitaParticleBudget > 0.0f ? s_keepFraction : 1.0f;
+        float opacityGain = 1.0f / keepFraction;
+        if( opacityGain > MAX_OPACITY_GAIN )
+        {
+            opacityGain = MAX_OPACITY_GAIN;
+        }
+#endif
+
         for (int i = 0; i < numLiveParticles; i++)
         {                                              
             tSpriteParticle* current = (tSpriteParticle*)liveParticles[i];
+
+#ifdef VITA_PARTICLE_BUDGET
+            tColour particleColour = current->colour;
+            {
+                const rmt::Vector& p = current->currPos;
+                const float z = transform.m[0][2]*p.x + transform.m[1][2]*p.y + transform.m[2][2]*p.z + transform.m[3][2];
+                const float fade = ( g_vitaParticleBudget > 0.0f ) ? ParticleNearFade( z ) : 1.0f;
+                if( z > 0.1f && fade > 0.0f )
+                {
+                    s_coverageThisFrame += ParticleCoverage( current->size, z ) * fade;
+                }
+                if( fade <= 0.0f || !ParticleKept( current, keepFraction ) )
+                {
+                    // The stream was opened for this many vertices. A triangle without area
+                    // costs no pixels.
+                    for( int v = 0; v < 6; v++ )
+                    {
+                        stream->Colour( particleColour );
+                        stream->UV( 0.0f, 0.0f );
+                        stream->Coord( 0.0f, 0.0f, -1.0f );
+                    }
+                    continue;
+                }
+                const float scale = fade * opacityGain;
+                if( scale != 1.0f )
+                {
+                    if( fadeAlpha || fadeColour )
+                    {
+                        particleColour.SetAlpha( ScaleChannel( particleColour.Alpha(), scale ) );
+                    }
+                    if( fadeColour )
+                    {
+                        particleColour.SetRed( ScaleChannel( particleColour.Red(), scale ) );
+                        particleColour.SetGreen( ScaleChannel( particleColour.Green(), scale ) );
+                        particleColour.SetBlue( ScaleChannel( particleColour.Blue(), scale ) );
+                    }
+                }
+            }
+#define PARTICLE_COLOUR particleColour
+#else
+#define PARTICLE_COLOUR current->colour
+#endif
 
             float x, y;
             rmt::SinCos(current->spin + rmt::PI_BY4, &y, &x);
@@ -807,27 +935,27 @@ void tSpriteEmitter::Display()
             currPos.y = transform.m[0][1]*temp.x + transform.m[1][1]*temp.y + transform.m[2][1]*temp.z + transform.m[3][1];
             currPos.z = transform.m[0][2]*temp.x + transform.m[1][2]*temp.y + transform.m[2][2]*temp.z + transform.m[3][2];
 
-            stream->Colour(current->colour);
+            stream->Colour(PARTICLE_COLOUR);
             stream->UV(texFrameCoords[current->texFrame+1], 1.0f);
             stream->Coord(currPos.x+x, currPos.y+y, currPos.z);
 
-            stream->Colour(current->colour);
+            stream->Colour(PARTICLE_COLOUR);
             stream->UV(texFrameCoords[current->texFrame], 0.0f);
             stream->Coord(currPos.x-x, currPos.y-y, currPos.z);
 
-            stream->Colour(current->colour);
+            stream->Colour(PARTICLE_COLOUR);
             stream->UV(texFrameCoords[current->texFrame], 1.0f);
             stream->Coord(currPos.x-y, currPos.y+x, currPos.z);
 
-            stream->Colour(current->colour);
+            stream->Colour(PARTICLE_COLOUR);
             stream->UV(texFrameCoords[current->texFrame+1], 1.0f);
             stream->Coord(currPos.x+x, currPos.y+y, currPos.z);
 
-            stream->Colour(current->colour);
+            stream->Colour(PARTICLE_COLOUR);
             stream->UV(texFrameCoords[current->texFrame+1], 0.0f);
             stream->Coord(currPos.x+y, currPos.y-x, currPos.z);
 
-            stream->Colour(current->colour);
+            stream->Colour(PARTICLE_COLOUR);
             stream->UV(texFrameCoords[current->texFrame], 0.0f);
             stream->Coord(currPos.x-x, currPos.y-y, currPos.z);
         }

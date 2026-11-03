@@ -27,7 +27,6 @@ static std::string VertexSource(bool skin, bool lit, bool specular)
             "    float4 colour;\n"
             "    float4 attenuation;\n"
             "} LightParams;\n"
-            "float3 direction(float4 p1, float4 p2) { return normalize(p2.xyz * sign(p1.w) - p1.xyz * sign(p2.w)); }\n"
             "float product(float3 x, float3 y) { return max(dot(x,y), 0.0); }\n";
         if(specular)
             s += "float power(float x, float y) { return y != 0.0 ? pow(x,y) : 1.0; }\n";
@@ -101,10 +100,18 @@ static std::string VertexSource(bool skin, bool lit, bool specular)
         s +=
             "    for (int i = 0; i < 4; i++) {\n"
             "        if (lights[i].position.w < 0.0f) continue;\n"
-            "        float3 VP = direction(V, lights[i].position);\n"
-            "        float3 k = lights[i].attenuation.rgb;\n"
-            "        float d = distance(V.xyz, lights[i].position.xyz);\n"
-            "        float att = lights[i].position.w != 0.0 ? 1.0 / (k[0] + k[1] * d + k[2] * d * d) : 1.0;\n"
+            // Most lights are directional: no distance or attenuation for them on every vertex.
+            "        float3 VP;\n"
+            "        float att = 1.0;\n"
+            "        if (lights[i].position.w != 0.0) {\n"
+            "            float3 toLight = lights[i].position.xyz - V.xyz;\n"
+            "            float d = length(toLight);\n"
+            "            float3 k = lights[i].attenuation.rgb;\n"
+            "            VP = toLight / d;\n"
+            "            att = 1.0 / (k[0] + k[1] * d + k[2] * d * d);\n"
+            "        } else {\n"
+            "            VP = normalize(lights[i].position.xyz);\n"
+            "        }\n"
             "        diff += att * product(n,VP) * dcm.rgb * lights[i].colour.rgb;\n";
         if(specular)
             s +=
