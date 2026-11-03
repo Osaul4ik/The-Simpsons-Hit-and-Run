@@ -283,7 +283,7 @@ extern int g_gxmFadeAlpha;     // pddi/gxm/context.cpp
 #endif
 
 #ifdef RAD_VITA
-float g_vitaSmallThingDist = 100.0f;    // "smalldist=" in vita.cfg, code/main/win32main.cpp
+float g_vitaSmallThingDist = 80.0f;     // "smalldist=" in vita.cfg, code/main/win32main.cpp
 #endif
 
 bool WorldScene::IsSphereInCone( rmt::Vector& irCenter, float iRadius )

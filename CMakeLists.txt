@@ -77,6 +77,9 @@ if(VITA)
 	option(SRR2_LTO "Link time optimization (see the comment above before turning it on)" OFF)
 	if(SRR2_LTO AND NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
 		set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
+		# LTO sees across files what the old code gets away with in one: casts between math types,
+		# and objects touched before their constructor runs. Keep such code working as written.
+		add_compile_options(-fno-strict-aliasing -fno-lifetime-dse)
 	endif()
 endif()
 
