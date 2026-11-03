@@ -59,6 +59,13 @@ extern "C" void vitaProfAdd(const char* name, unsigned microseconds);
 #define RAD_GXM_TEXTURE_MIPS 1
 #endif
 
+// The same choices while the game runs, to find out which one breaks a picture: "texswizzle=",
+// "texmips=", "texp8=" and "tex565=" in vita.cfg, code/main/win32main.cpp.
+int g_gxmTexSwizzle = 1;
+int g_gxmTexMips = 1;
+int g_gxmTexP8 = 1;
+int g_gxmTex565 = 1;
+
 // Added to the level of detail of textures with a mip chain, in 1/8 level steps (GXM stores it as
 // 31 + bias, valid range -31..32). There is no anisotropic filtering, so the sharper level is chosen
 // from the compressed axis and a road seen at a low angle would go blurry right in front of the
@@ -678,13 +685,15 @@ bool gxmTexture::Create(int x, int y, int bpp, int alphaDepth, int nMip, pddiTex
     bool palettized = (textureType == PDDI_TEXTYPE_PALETTIZED);
 #if !RAD_GXM_TEXTURE_P8
     if (palettized)
+#else
+    if (palettized && !g_gxmTexP8)
+#endif
     {
         // old behaviour: the loader depalettizes into a 32 bit RGB texture
         palettized = false;
         textureType = PDDI_TEXTYPE_RGB;
         bpp = 32;
     }
-#endif
     opaquePalette = (alphaDepth == 0);
     if (palettized)
     {
@@ -696,7 +705,7 @@ bool gxmTexture::Create(int x, int y, int bpp, int alphaDepth, int nMip, pddiTex
         if (bpp <= 16 && alphaDepth > 0)
             bpp = 32;
 #if RAD_GXM_TEXTURE_RGB565
-        else if (alphaDepth == 0 && usageHint == PDDI_USAGE_STATIC)
+        else if (g_gxmTex565 && alphaDepth == 0 && usageHint == PDDI_USAGE_STATIC)
             bpp = 16;
 #endif
     }
@@ -715,14 +724,14 @@ bool gxmTexture::Create(int x, int y, int bpp, int alphaDepth, int nMip, pddiTex
     validMips = 1;
     hasAlpha = (alphaDepth > 0 && bpp == 32 && !palettized);
 #if RAD_GXM_TEXTURE_SWIZZLE
-    if(!compressed && !yuv && usageHint == PDDI_USAGE_STATIC &&
+    if(g_gxmTexSwizzle && !compressed && !yuv && usageHint == PDDI_USAGE_STATIC &&
        log2X >= 3 && log2Y >= 3 &&
        ((palettized && bpp == 8) || (textureType == PDDI_TEXTYPE_RGB && (bpp == 16 || bpp == 32))))
     {
         swizzled = true;
 #if RAD_GXM_TEXTURE_MIPS
         const int minLog = rmt::Min(log2X, log2Y);
-        if(rmt::Min(xSize, ySize) >= RAD_GXM_TEXTURE_MIN_MIP_SIZE && minLog >= 4)
+        if(g_gxmTexMips && rmt::Min(xSize, ySize) >= RAD_GXM_TEXTURE_MIN_MIP_SIZE && minLog >= 4)
             mipCount = minLog - 2;
 #endif
     }

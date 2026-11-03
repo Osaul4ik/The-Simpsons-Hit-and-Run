@@ -79,6 +79,10 @@ static void ProcessCommandLineArgumentsFromFile();
 //     zonefade=600      milliseconds over which what a zone adds fades in, 0 = it just appears
 //     smalldist=100     metres from which small things (hydrants, ...) are not drawn; the original
 //                       game has 63, higher costs more draw calls
+//     texswizzle=1      0 = textures stored line by line (no mip chains either; costs frame rate)
+//     texmips=1         0 = no generated mip chains
+//     texp8=1           0 = palettized textures become 32 bit
+//     tex565=1          0 = opaque textures stay 32 bit
 //     pngyield=1        0 = a PNG image is decoded in one piece, without handing the frame back
 //     landmark=30       things with a bounding sphere at least this big in metres are drawn from any
 //                       distance, so that the skyline does not appear at 200 m; 0 = off
@@ -115,6 +119,7 @@ extern int g_vitaProfEnabled;                                  // code/debug/vit
 #endif
 extern float g_vitaSmallThingDist;                             // code/render/Culling/WorldScene.cpp
 extern float g_vitaParticleBudget;                             // p3d/effects/particleemitter.cpp
+extern int g_gxmTexSwizzle, g_gxmTexMips, g_gxmTexP8, g_gxmTex565;    // pddi/gxm/texture.cpp
 extern int g_vitaPngYield;                                     // p3d/png.cpp
 extern float g_vitaLandmarkRadius;                             // render/Culling/WorldScene.cpp
 extern float g_vitaCullMargin;                                 // render/Culling/WorldScene.cpp
@@ -168,6 +173,22 @@ static void LoadVitaConfig()
         else if( sscanf( line, "zonefade=%d", &v ) == 1 )
         {
             IEntityDSG::msFadeMs = v > 0 ? (unsigned int)v : 0;
+        }
+        else if( sscanf( line, "texswizzle=%d", &v ) == 1 )
+        {
+            g_gxmTexSwizzle = v != 0;
+        }
+        else if( sscanf( line, "texmips=%d", &v ) == 1 )
+        {
+            g_gxmTexMips = v != 0;
+        }
+        else if( sscanf( line, "texp8=%d", &v ) == 1 )
+        {
+            g_gxmTexP8 = v != 0;
+        }
+        else if( sscanf( line, "tex565=%d", &v ) == 1 )
+        {
+            g_gxmTex565 = v != 0;
         }
         else if( sscanf( line, "pngyield=%d", &v ) == 1 )
         {
