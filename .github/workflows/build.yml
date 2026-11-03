@@ -106,10 +106,11 @@ jobs:
         run: |
           cmake --build build --parallel "$(nproc)" || {
             rc=$?
-            echo '::group::ELF layout (diagnostics)'
-            arm-vita-eabi-readelf -lW build/code/SRR2 || true
-            arm-vita-eabi-readelf -SW build/code/SRR2 || true
-            echo '::endgroup::'
+            E=build/code/SRR2
+            echo "::error title=LOAD segments::$(arm-vita-eabi-readelf -lW $E | grep -E 'LOAD|TLS|Type' | sed 's/$/%0A/' | tr -d '\n')"
+            echo "::error title=Sections::$(arm-vita-eabi-readelf -SW $E | sed 's/$/%0A/' | tr -d '\n')"
+            echo "::error title=Link flags::$(grep -rh 'common-page-size' build/code/CMakeFiles/SRR2.dir/link.txt | head -c 600)"
+            echo "::error title=ld::$(arm-vita-eabi-ld --version | head -1); $(vita-elf-create 2>&1 | head -2 | tr '\n' ' ')"
             exit $rc
           }
 
