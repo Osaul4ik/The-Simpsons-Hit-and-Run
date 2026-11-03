@@ -103,7 +103,15 @@ jobs:
             -DSRR2_BUILD_TESTS=OFF
 
       - name: Build
-        run: cmake --build build --parallel "$(nproc)"
+        run: |
+          cmake --build build --parallel "$(nproc)" || {
+            rc=$?
+            echo '::group::ELF layout (diagnostics)'
+            arm-vita-eabi-readelf -lW build/code/SRR2 || true
+            arm-vita-eabi-readelf -SW build/code/SRR2 || true
+            echo '::endgroup::'
+            exit $rc
+          }
 
       # Guard against silently falling back to the desktop-GL-over-vitaGL backend.
       # vitaGL symbols (vglInit) are NOT a valid signal: vitasdk's SDL2 links vitaGL itself.
