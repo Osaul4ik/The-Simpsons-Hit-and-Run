@@ -31,13 +31,13 @@
 // Global Data, Local Data, Local Classes
 //===========================================================================
 
-struct ControlMap
+struct GuiControlMap
 {
     const char* inputName;
     GuiInput::eGuiInput inputID;
 };
 
-const ControlMap GUI_CONTROL_MAP[] =
+const GuiControlMap GUI_CONTROL_MAP[] =
 {
 #ifdef RAD_GAMECUBE
     { "LeftStickX",     GuiInput::XAxis },

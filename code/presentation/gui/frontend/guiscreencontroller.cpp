@@ -39,6 +39,8 @@
 // Global Data, Local Data, Local Classes
 //===========================================================================
 
+namespace
+{
 enum eMenuItem
 {
     MENU_ITEM_CONFIGURATION,
@@ -47,6 +49,7 @@ enum eMenuItem
 
     NUM_MENU_ITEMS
 };
+}
 
 static const char* MENU_ITEMS[] = 
 {
