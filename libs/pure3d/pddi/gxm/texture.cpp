@@ -1036,7 +1036,8 @@ void gxmTexture::Unlock(int mipLevel)
     {
         uint32_t width = ceil(double(xSize) / 4);
         uint32_t height = ceil(double(ySize) / 4);
-        DxtSwizzleJob job = { bits, (uint8_t*)lockTemp, width, height, type == PDDI_TEXTYPE_DXT5 };
+        // DXT1 has blocks of 8 bytes, DXT3 and DXT5 of 16. DXT3 was swizzled as if 8: the mission pictures.
+        DxtSwizzleJob job = { bits, (uint8_t*)lockTemp, width, height, lock.format != PDDI_PIXEL_DXT1 };
         RunTextureJob(RunDxtSwizzleJob, &job, size_t(width) * height * (job.blocks16 ? 16 : 8));
     }
 
