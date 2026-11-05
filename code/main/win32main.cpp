@@ -96,8 +96,9 @@ static void ProcessCommandLineArgumentsFromFile();
 //     smokebudget=25    how many whole screens the particles of a frame may cover, in tenths;
 //                       lower = smoke costs less and thins out sooner, 0 = no limit and no
 //                       fading near the camera
-//     pixcull=4         solid things with a smaller radius on screen, in pixels, are not drawn; 0 = all
+//     pixcull=2         solid things with a smaller radius on screen, in pixels, are not drawn; 0 = all
 //     occlsort=1        0 = solid things are sorted by material alone, not near ones first
+//     occlnear=50       metres within which hidden objects are still drawn, so that they cannot appear late
 //     occlusion=1       0 = no hardware visibility queries: objects hidden behind others are drawn too
 //     framecull=1       0 = things above and below the picture are drawn too, as in the original
 //     skylineall=0      1 = the big landmarks of zones asleep in memory are drawn too, for more
@@ -125,6 +126,7 @@ extern int g_vitaProfEnabled;                                  // code/debug/vit
 #endif
 extern int g_vitaPixCull;                                      // code/render/Culling/WorldScene.cpp
 extern bool g_vitaOcclSort;                                    // code/render/Culling/WorldScene.cpp
+extern float g_vitaOcclNear;                                   // code/render/Culling/WorldScene.cpp
 extern bool g_vitaOcclusion;                                   // code/render/Culling/WorldScene.cpp
 extern bool g_vitaFrameCull;                                   // code/render/Culling/WorldScene.cpp
 extern bool g_vitaSkylineAll;                                  // code/render/RenderManager/WorldRenderLayer.cpp
@@ -217,6 +219,10 @@ static void LoadVitaConfig()
         else if( sscanf( line, "occlsort=%d", &v ) == 1 )
         {
             g_vitaOcclSort = v != 0;
+        }
+        else if( sscanf( line, "occlnear=%d", &v ) == 1 )
+        {
+            g_vitaOcclNear = (float)( v > 0 ? v : 0 );
         }
         else if( sscanf( line, "occlusion=%d", &v ) == 1 )
         {
