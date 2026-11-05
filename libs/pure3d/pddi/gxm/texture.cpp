@@ -63,9 +63,9 @@ extern "C" void vitaProfAdd(const char* name, unsigned microseconds);
 // 31 + bias, valid range -31..32). There is no anisotropic filtering, so the sharper level is chosen
 // from the compressed axis and a road seen at a low angle would go blurry right in front of the
 // camera without this. Closer to 0: less shimmering, more blur. -8: base level until 2:1 minification.
-// -11: every level reaches 2^(3/8) = 30% farther than with -8. "lodbias=" in vita.cfg overrides it.
+// Each -3 makes every level reach 2^(3/8) = 30% farther. "lodbias=" in vita.cfg overrides it.
 #ifndef RAD_GXM_TEXTURE_LOD_BIAS_EIGHTHS
-#define RAD_GXM_TEXTURE_LOD_BIAS_EIGHTHS -11
+#define RAD_GXM_TEXTURE_LOD_BIAS_EIGHTHS -14
 #endif
 static_assert(RAD_GXM_TEXTURE_LOD_BIAS_EIGHTHS >= -31 && RAD_GXM_TEXTURE_LOD_BIAS_EIGHTHS <= 32, "GXM LOD bias out of range");
 int g_gxmLodBiasEighths = RAD_GXM_TEXTURE_LOD_BIAS_EIGHTHS;   // read before the first texture is made

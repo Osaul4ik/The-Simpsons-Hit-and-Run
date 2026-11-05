@@ -22,8 +22,7 @@
 extern int g_gxmFrameRate;
 static unsigned VblanksForNextFrame();
 static unsigned s_chosenVblanks = 0;
-int g_gxmVsync = 0;         // "vsync=1" in vita.cfg: wait for the screen, as on the main branch
-int g_gxmFpsCap = 42;       // "fpscap=" in vita.cfg, with vsync off; 0 = no limit
+int g_gxmVsync = 1;         // set by VitaSetFrameRate: on at 30 and 60 fps, off in between
 
 // Enable the following define to allow Razor HUD.
 //#define ENABLE_RAZOR_HUD
@@ -490,12 +489,12 @@ void gxmDisplay::SetGamma(float r, float g, float b)
 
 void gxmDisplay::SwapBuffers(void)
 {
-    if(!g_gxmVsync && g_gxmFpsCap > 0)
+    if(!g_gxmVsync)
     {
         // Without vsync nothing else holds the frame rate back. The next frame is due a fixed time
         // after this one was, so one slow frame does not move all the later ones.
         static SceUInt64 s_nextSwapUs = 0;
-        const SceUInt64 intervalUs = 1000000u / (unsigned)g_gxmFpsCap;
+        const SceUInt64 intervalUs = 1000000u / (unsigned)g_gxmFrameRate;
         SceUInt64 now = sceKernelGetProcessTimeWide();
         if(s_nextSwapUs > now)
         {

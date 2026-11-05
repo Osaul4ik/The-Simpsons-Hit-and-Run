@@ -73,8 +73,9 @@ static void ProcessCommandLineArgumentsFromFile();
 //=============================================================================
 // Runtime settings (Vita). Read from ux0:data/simpsons/vita.cfg, one "key=value"
 // per line, so they can be tuned without rebuilding:
-//     fps=30            30 (default) or 60; also chosen in the game's Options menu,
-//                       which rewrites this line
+//     fps=30            30 (default), 35, 40, 45, 50, 55 or 60; also chosen in the game's Options
+//                       menu, which rewrites this line. 30 and 60 wait for the screen; the others do
+//                       not, so the picture can tear, and game time follows the clock
 //     zonepreload=1     all the outside zones of a level load behind the loading screen and stay, so
 //                       nothing streams while driving; 0 = they load on the way, the level opens faster
 //     zonecache=8       max zones kept resident after leaving them (0 = off)
@@ -96,9 +97,6 @@ static void ProcessCommandLineArgumentsFromFile();
 //     smokebudget=25    how many whole screens the particles of a frame may cover, in tenths;
 //                       lower = smoke costs less and thins out sooner, 0 = no limit and no
 //                       fading near the camera
-//     vsync=0           1 = wait for the screen, then fps= sets the frame rate. Off, the picture can
-//                       tear and game time follows the clock
-//     fpscap=42         frames per second at most with vsync off; 0 = no limit
 //     pixcull=2         solid things with a smaller radius on screen, in pixels, are not drawn; 0 = all
 //     occlsort=1        0 = solid things are sorted by material alone, not near ones first
 //     occlnear=50       metres within which hidden objects are still drawn, so that they cannot appear late
@@ -128,7 +126,6 @@ int g_gxmFrameRate          = RAD_VITA_FRAME_RATE;             // read by gxmDis
 extern int g_vitaProfEnabled;                                  // code/debug/vitaprof.cpp
 #endif
 extern int g_gxmVsync;                                         // libs/pure3d/pddi/gxm/display.cpp
-extern int g_gxmFpsCap;                                        // libs/pure3d/pddi/gxm/display.cpp
 extern int g_vitaPixCull;                                      // code/render/Culling/WorldScene.cpp
 extern bool g_vitaOcclSort;                                    // code/render/Culling/WorldScene.cpp
 extern float g_vitaOcclNear;                                   // code/render/Culling/WorldScene.cpp
@@ -217,14 +214,6 @@ static void LoadVitaConfig()
         {
             g_vitaParticleBudget = (float)v * 0.1f;
         }
-        else if( sscanf( line, "vsync=%d", &v ) == 1 )
-        {
-            g_gxmVsync = v != 0;
-        }
-        else if( sscanf( line, "fpscap=%d", &v ) == 1 )
-        {
-            g_gxmFpsCap = v < 0 ? 0 : v;
-        }
         else if( sscanf( line, "pixcull=%d", &v ) == 1 )
         {
             g_vitaPixCull = v < 0 ? 0 : v;
@@ -297,7 +286,9 @@ int VitaGetFrameRate()
 
 void VitaSetFrameRate( int fps )
 {
-    g_gxmFrameRate = ( fps >= 60 ) ? 60 : 30;
+    // the nearest of 30, 35 ... 60
+    g_gxmFrameRate = fps <= 30 ? 30 : fps >= 60 ? 60 : ( fps + 2 ) / 5 * 5;
+    g_gxmVsync = g_gxmFrameRate == 30 || g_gxmFrameRate == 60;
 }
 
 // Writes the current frame rate to vita.cfg, keeping every other line of the file.

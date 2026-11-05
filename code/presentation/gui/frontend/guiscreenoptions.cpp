@@ -243,7 +243,7 @@ MEMTRACK_PUSH_GROUP( "CGUIScreenOptions" );
 #ifdef RAD_VITA
     if( frameRateValue != NULL )
     {
-        m_pMenu->SetSelectionValueCount( MENU_ITEM_DISPLAY_MODE, 2 );
+        m_pMenu->SetSelectionValueCount( MENU_ITEM_DISPLAY_MODE, 7 );
     }
     this->UpdateFrameRateLabel();
 #else
@@ -439,7 +439,7 @@ void CGuiScreenOptions::HandleMessage
             ( message == GUI_MSG_CONTROLLER_LEFT || message == GUI_MSG_CONTROLLER_RIGHT ) &&
             m_pMenu->GetSelection() == MENU_ITEM_DISPLAY_MODE )
         {
-            this->ToggleFrameRate();
+            this->ToggleFrameRate( message == GUI_MSG_CONTROLLER_LEFT ? -1 : 1 );
         }
 #endif
         switch( message )
@@ -459,7 +459,7 @@ void CGuiScreenOptions::HandleMessage
 #ifdef RAD_VITA
                 if( param1 == MENU_ITEM_DISPLAY_MODE )
                 {
-                    VitaSetFrameRate( param2 == 1 ? 60 : 30 );
+                    VitaSetFrameRate( 30 + param2 * 5 );
                 }
 #else
                 if( param1 == MENU_ITEM_DISPLAY_MODE )
@@ -638,7 +638,7 @@ void CGuiScreenOptions::InitIntro()
     //
     if( m_frameRateLabel == NULL )
     {
-        m_pMenu->SetSelectionValue( MENU_ITEM_DISPLAY_MODE, VitaGetFrameRate() >= 60 ? 1 : 0 );
+        m_pMenu->SetSelectionValue( MENU_ITEM_DISPLAY_MODE, ( VitaGetFrameRate() - 30 ) / 5 );
     }
     this->UpdateFrameRateLabel();
     this->UpdateShaderStatus();
@@ -703,7 +703,9 @@ void CGuiScreenOptions::UpdateFrameRateLabel()
 {
     if( m_frameRateLabel != NULL )
     {
-        m_frameRateLabel->SetString( 0, VitaGetFrameRate() >= 60 ? "FRAME RATE 60 FPS" : "FRAME RATE 30 FPS" );
+        char text[ 32 ];
+        snprintf( text, sizeof( text ), "FRAME RATE %d FPS", VitaGetFrameRate() );
+        m_frameRateLabel->SetString( 0, text );
     }
 }
 
@@ -790,9 +792,11 @@ void CGuiScreenOptions::UpdateShaderCompile()
     }
 }
 
-void CGuiScreenOptions::ToggleFrameRate()
+void CGuiScreenOptions::ToggleFrameRate( int direction )
 {
-    VitaSetFrameRate( VitaGetFrameRate() >= 60 ? 30 : 60 );
+    // 30, 35 ... 60 and round again
+    const int fps = VitaGetFrameRate() + direction * 5;
+    VitaSetFrameRate( fps > 60 ? 30 : fps < 30 ? 60 : fps );
     this->UpdateFrameRateLabel();
 }
 #endif
