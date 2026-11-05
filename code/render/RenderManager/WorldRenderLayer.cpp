@@ -1156,6 +1156,10 @@ BEGIN_PROFILE( "Remove Searches" );
             
             SpatialNode& rSNode = mpWorldScene->mStaticTreeWalker.rSeekNode(BBoxSP);
                 */
+            if( mLoadLists[i]->mDPhysElems[j]->mpSpatialNode == NULL )
+            {
+                continue;   // it found no room in the tree
+            }
             SpatialNode& rSNode = *(mLoadLists[i]->mDPhysElems[j]->mpSpatialNode);
 
 
@@ -1205,6 +1209,10 @@ BEGIN_PROFILE( "Remove Searches" );
             
             SpatialNode& rSNode = mpWorldScene->mStaticTreeWalker.rSeekNode(BBoxSP);
             */
+            if( mLoadLists[i]->mSEntityElems[j]->mpSpatialNode == NULL )
+            {
+                continue;   // it found no room in the tree
+            }
             SpatialNode& rSNode = *(mLoadLists[i]->mSEntityElems[j]->mpSpatialNode);
 
             for(k=0;k<rSNode.mSEntityElems.mUseSize;k++)
@@ -1249,6 +1257,10 @@ BEGIN_PROFILE( "Remove Searches" );
             
             SpatialNode& rSNode = mpWorldScene->mStaticTreeWalker.rSeekNode(BBoxSP);
                 */
+            if( mLoadLists[i]->mAnimCollElems[j]->mpSpatialNode == NULL )
+            {
+                continue;   // it found no room in the tree
+            }
             SpatialNode& rSNode = *(mLoadLists[i]->mAnimCollElems[j]->mpSpatialNode);
 
             for(k=0;k<rSNode.mAnimCollElems.mUseSize;k++)
@@ -1294,6 +1306,10 @@ BEGIN_PROFILE( "Remove Searches" );
             SpatialNode& rSNode = mpWorldScene->mStaticTreeWalker.rSeekNode(BBoxSP);
             */
 
+            if( mLoadLists[i]->mAnimElems[j]->mpSpatialNode == NULL )
+            {
+                continue;   // it found no room in the tree
+            }
             SpatialNode& rSNode = *(mLoadLists[i]->mAnimElems[j]->mpSpatialNode);
 
             for(k=0;k<rSNode.mAnimElems.mUseSize;k++)
@@ -1340,6 +1356,10 @@ BEGIN_PROFILE( "Remove Searches" );
             
             SpatialNode& rSNode = mpWorldScene->mStaticTreeWalker.rSeekNode(BBoxSP);
             */
+            if( mLoadLists[i]->mIntersectElems[j]->mpSpatialNode == NULL )
+            {
+                continue;   // it found no room in the tree
+            }
             SpatialNode& rSNode = *(mLoadLists[i]->mIntersectElems[j]->mpSpatialNode);
 
             for(k=0;k<rSNode.mIntersectElems.mUseSize;k++)
@@ -1366,6 +1386,10 @@ BEGIN_PROFILE( "Remove Searches" );
             
             SpatialNode& rSNode = mpWorldScene->mStaticTreeWalker.rSeekNode(BBoxSP);
                 */
+            if( mLoadLists[i]->mSPhysElems[j]->mpSpatialNode == NULL )
+            {
+                continue;   // it found no room in the tree
+            }
             SpatialNode& rSNode = *(mLoadLists[i]->mSPhysElems[j]->mpSpatialNode);
 
             for(k=0;k<rSNode.mSPhysElems.mUseSize;k++)
@@ -1393,6 +1417,10 @@ BEGIN_PROFILE( "Remove Searches" );
             
             SpatialNode& rSNode = mpWorldScene->mStaticTreeWalker.rSeekNode(BBoxSP);
             */
+            if( mLoadLists[i]->mFenceElems[j]->mpSpatialNode == NULL )
+            {
+                continue;   // it found no room in the tree
+            }
             SpatialNode& rSNode = *(mLoadLists[i]->mFenceElems[j]->mpSpatialNode);
 
             for(k=0;k<rSNode.mFenceElems.mUseSize;k++)
@@ -1421,6 +1449,10 @@ BEGIN_PROFILE( "Remove Searches" );
             
             SpatialNode& rSNode = mpWorldScene->mStaticTreeWalker.rSeekNode(BBoxSP);
             */
+            if( mLoadLists[i]->mTrigVolElems[j]->mpSpatialNode == NULL )
+            {
+                continue;   // it found no room in the tree
+            }
             SpatialNode& rSNode = *(mLoadLists[i]->mTrigVolElems[j]->mpSpatialNode);
 
             for(k=0;k<rSNode.mTrigVolElems.mUseSize;k++)
@@ -1448,6 +1480,10 @@ BEGIN_PROFILE( "Remove Searches" );
             SpatialNode& rSNode = mpWorldScene->mStaticTreeWalker.rSeekNode(BBoxSP);
             */
 
+            if( mLoadLists[i]->mRoadSegmentElems[j]->mpSpatialNode == NULL )
+            {
+                continue;   // it found no room in the tree
+            }
             SpatialNode& rSNode = *(mLoadLists[i]->mRoadSegmentElems[j]->mpSpatialNode);
 
             for(k=0;k<rSNode.mRoadSegmentElems.mUseSize;k++)
@@ -1475,6 +1511,10 @@ BEGIN_PROFILE( "Remove Searches" );
             
             SpatialNode& rSNode = mpWorldScene->mStaticTreeWalker.rSeekNode(BBoxSP);
             */
+            if( mLoadLists[i]->mPathSegmentElems[j]->mpSpatialNode == NULL )
+            {
+                continue;   // it found no room in the tree
+            }
             SpatialNode& rSNode = *(mLoadLists[i]->mPathSegmentElems[j]->mpSpatialNode);
 
             for(k=0;k<rSNode.mPathSegmentElems.mUseSize;k++)
@@ -1812,6 +1852,10 @@ void WorldRenderLayer::DumpDynaLoad(tName& irGiveItAFuckinName)
             
             SpatialNode& rSNode = mpWorldScene->mStaticTreeWalker.rSeekNode(BBoxSP);
                 */
+            if( mLoadLists[i]->mDPhysElems[j]->mpSpatialNode == NULL )
+            {
+                continue;   // it found no room in the tree
+            }
             SpatialNode& rSNode = *(mLoadLists[i]->mDPhysElems[j]->mpSpatialNode);
 
             for(k=0;k<rSNode.mDPhysElems.mUseSize;k++)
@@ -1856,6 +1900,10 @@ void WorldRenderLayer::DumpDynaLoad(tName& irGiveItAFuckinName)
             
             SpatialNode& rSNode = mpWorldScene->mStaticTreeWalker.rSeekNode(BBoxSP);
                 */
+            if( mLoadLists[i]->mSEntityElems[j]->mpSpatialNode == NULL )
+            {
+                continue;   // it found no room in the tree
+            }
             SpatialNode& rSNode = *(mLoadLists[i]->mSEntityElems[j]->mpSpatialNode);
 
             for(k=0;k<rSNode.mSEntityElems.mUseSize;k++)
@@ -1898,6 +1946,10 @@ void WorldRenderLayer::DumpDynaLoad(tName& irGiveItAFuckinName)
             
             SpatialNode& rSNode = mpWorldScene->mStaticTreeWalker.rSeekNode(BBoxSP);
                 */
+            if( mLoadLists[i]->mAnimCollElems[j]->mpSpatialNode == NULL )
+            {
+                continue;   // it found no room in the tree
+            }
             SpatialNode& rSNode = *(mLoadLists[i]->mAnimCollElems[j]->mpSpatialNode);
 
             for(k=0;k<rSNode.mAnimCollElems.mUseSize;k++)
@@ -1942,6 +1994,10 @@ void WorldRenderLayer::DumpDynaLoad(tName& irGiveItAFuckinName)
             
             SpatialNode& rSNode = mpWorldScene->mStaticTreeWalker.rSeekNode(BBoxSP);
             */
+            if( mLoadLists[i]->mAnimElems[j]->mpSpatialNode == NULL )
+            {
+                continue;   // it found no room in the tree
+            }
             SpatialNode& rSNode = *(mLoadLists[i]->mAnimElems[j]->mpSpatialNode);
 
             for(k=0;k<rSNode.mAnimElems.mUseSize;k++)
@@ -1988,6 +2044,10 @@ void WorldRenderLayer::DumpDynaLoad(tName& irGiveItAFuckinName)
             
             SpatialNode& rSNode = mpWorldScene->mStaticTreeWalker.rSeekNode(BBoxSP);
             */
+            if( mLoadLists[i]->mIntersectElems[j]->mpSpatialNode == NULL )
+            {
+                continue;   // it found no room in the tree
+            }
             SpatialNode& rSNode = *(mLoadLists[i]->mIntersectElems[j]->mpSpatialNode);
 
             for(k=0;k<rSNode.mIntersectElems.mUseSize;k++)
@@ -2015,6 +2075,10 @@ void WorldRenderLayer::DumpDynaLoad(tName& irGiveItAFuckinName)
             
             SpatialNode& rSNode = mpWorldScene->mStaticTreeWalker.rSeekNode(BBoxSP);
             */
+            if( mLoadLists[i]->mSPhysElems[j]->mpSpatialNode == NULL )
+            {
+                continue;   // it found no room in the tree
+            }
             SpatialNode& rSNode = *(mLoadLists[i]->mSPhysElems[j]->mpSpatialNode);
 
             for(k=0;k<rSNode.mSPhysElems.mUseSize;k++)
@@ -2042,6 +2106,10 @@ void WorldRenderLayer::DumpDynaLoad(tName& irGiveItAFuckinName)
             
             SpatialNode& rSNode = mpWorldScene->mStaticTreeWalker.rSeekNode(BBoxSP);
             */
+            if( mLoadLists[i]->mFenceElems[j]->mpSpatialNode == NULL )
+            {
+                continue;   // it found no room in the tree
+            }
             SpatialNode& rSNode = *(mLoadLists[i]->mFenceElems[j]->mpSpatialNode);
 
             for(k=0;k<rSNode.mFenceElems.mUseSize;k++)
@@ -2070,6 +2138,10 @@ void WorldRenderLayer::DumpDynaLoad(tName& irGiveItAFuckinName)
             
             SpatialNode& rSNode = mpWorldScene->mStaticTreeWalker.rSeekNode(BBoxSP);
             */
+            if( mLoadLists[i]->mTrigVolElems[j]->mpSpatialNode == NULL )
+            {
+                continue;   // it found no room in the tree
+            }
             SpatialNode& rSNode = *(mLoadLists[i]->mTrigVolElems[j]->mpSpatialNode);
 
             for(k=0;k<rSNode.mTrigVolElems.mUseSize;k++)
@@ -2096,6 +2168,10 @@ void WorldRenderLayer::DumpDynaLoad(tName& irGiveItAFuckinName)
             
             SpatialNode& rSNode = mpWorldScene->mStaticTreeWalker.rSeekNode(BBoxSP);
             */
+            if( mLoadLists[i]->mRoadSegmentElems[j]->mpSpatialNode == NULL )
+            {
+                continue;   // it found no room in the tree
+            }
             SpatialNode& rSNode = *(mLoadLists[i]->mRoadSegmentElems[j]->mpSpatialNode);
 
             for(k=0;k<rSNode.mRoadSegmentElems.mUseSize;k++)
@@ -2123,6 +2199,10 @@ void WorldRenderLayer::DumpDynaLoad(tName& irGiveItAFuckinName)
             
             SpatialNode& rSNode = mpWorldScene->mStaticTreeWalker.rSeekNode(BBoxSP);
             */
+            if( mLoadLists[i]->mPathSegmentElems[j]->mpSpatialNode == NULL )
+            {
+                continue;   // it found no room in the tree
+            }
             SpatialNode& rSNode = *(mLoadLists[i]->mPathSegmentElems[j]->mpSpatialNode);
 
             for(k=0;k<rSNode.mPathSegmentElems.mUseSize;k++)

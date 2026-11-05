@@ -290,6 +290,14 @@ float g_vitaSmallThingDist = 100.0f;    // "smalldist=" in vita.cfg, code/main/w
 // came out of nothing when the player got that close. Things with a bounding sphere this big, in
 // metres, go to the root of the tree, which is always asked. 0 = off, "landmark=" in vita.cfg.
 float g_vitaLandmarkRadius = 30.0f;
+static void VitaPlaceFailed( const char* kind )
+{
+    static int s_failures = 0;
+    if( ++s_failures <= 32 )
+    {
+        rReleasePrintf( "[tree] no room for a %s, it is left out of the world (%d so far)\n", kind, s_failures );
+    }
+}
 float g_vitaCullMargin = 4.0f;          // "cullmargin=" in vita.cfg, metres
 #endif
 
@@ -1939,6 +1947,22 @@ void WorldScene::PopulateStaticTree()
    int max=mStaticTreeWalker.NumNodes();
 #ifdef RAD_VITA
    mStaticTreeWalker.rIthNode(0).mSEntityElems.Reserve( 256 );  // the skyline, see Place
+   // A node only has room for what the zones around the player put there. With zones kept by the zone cache
+   // that ran out: things were left out of the world, and a dump crashed on them.
+   for(i=0; i<max; i++)
+   {
+      SpatialNode& node = mStaticTreeWalker.rIthNode(i);
+      node.mSEntityElems.Reserve( node.mSEntityElems.mUseSize * 3 );
+      node.mSPhysElems.Reserve( node.mSPhysElems.mUseSize * 3 );
+      node.mIntersectElems.Reserve( node.mIntersectElems.mUseSize * 3 );
+      node.mDPhysElems.Reserve( node.mDPhysElems.mUseSize * 3 );
+      node.mFenceElems.Reserve( node.mFenceElems.mUseSize * 3 );
+      node.mAnimCollElems.Reserve( node.mAnimCollElems.mUseSize * 3 );
+      node.mAnimElems.Reserve( node.mAnimElems.mUseSize * 3 );
+      node.mTrigVolElems.Reserve( node.mTrigVolElems.mUseSize * 3 );
+      node.mRoadSegmentElems.Reserve( node.mRoadSegmentElems.mUseSize * 3 );
+      node.mPathSegmentElems.Reserve( node.mPathSegmentElems.mUseSize * 3 );
+   }
 #endif
    for(i=0; i<max; i++)
    {
@@ -1983,7 +2007,18 @@ void WorldScene::Place( IntersectDSG* ipIntersectDSG )
    //mStaticTreeWalker.Place( (ISpatialProxyAA&)DrawableSP, mStaticEntities[i] );
    //mStaticTreeWalker.rSeekNode((ISpatialProxyAA&)DrawableSP).mIntersectElems.Add(ipIntersectDSG);
    SpatialNode* pSpatialNode = &(mStaticTreeWalker.rSeekNode((ISpatialProxyAA&)DrawableSP));
+#ifdef RAD_VITA
+   // This array does not check its size itself: one too many overwrites the memory behind it.
+   if( pSpatialNode->mIntersectElems.mUseSize >= pSpatialNode->mIntersectElems.mSize )
+   {
+      VitaPlaceFailed( "ground piece" );
+      ipIntersectDSG->mpSpatialNode = NULL;
+      return;
+   }
    pSpatialNode->mIntersectElems.Add(ipIntersectDSG);
+#else
+   pSpatialNode->mIntersectElems.Add(ipIntersectDSG);
+#endif
    ipIntersectDSG->mpSpatialNode = pSpatialNode;
 }
 //////////////////////////////////////////////////////////////////////////
@@ -2027,6 +2062,10 @@ void WorldScene::Place(    StaticEntityDSG*  ipStaticEntity )
        pSpatialNode = &(mStaticTreeWalker.rIthNode(0));
        if( ! pSpatialNode->mSEntityElems.Add(ipStaticEntity) )
        {
+#ifdef RAD_VITA
+           VitaPlaceFailed( "static entity" );
+           ipStaticEntity->mpSpatialNode = NULL;
+#endif
            rTuneAssert(false);
        }
        else
@@ -2059,7 +2098,18 @@ void WorldScene::Place(      StaticPhysDSG*    ipStaticPhys )
    //mStaticTreeWalker.Place( (ISpatialProxyAA&)DrawableSP, mStaticEntities[i] );
    //mStaticTreeWalker.rSeekNode((ISpatialProxyAA&)DrawableSP).mSPhysElems.Add(ipStaticPhys);
    SpatialNode* pSpatialNode = &(mStaticTreeWalker.rSeekNode((ISpatialProxyAA&)DrawableSP));
+#ifdef RAD_VITA
+   // This array does not check its size itself: one too many overwrites the memory behind it.
+   if( pSpatialNode->mSPhysElems.mUseSize >= pSpatialNode->mSPhysElems.mSize )
+   {
+      VitaPlaceFailed( "static physics object" );
+      ipStaticPhys->mpSpatialNode = NULL;
+      return;
+   }
    pSpatialNode->mSPhysElems.Add(ipStaticPhys);
+#else
+   pSpatialNode->mSPhysElems.Add(ipStaticPhys);
+#endif
    ipStaticPhys->mpSpatialNode = pSpatialNode;
 
 }
@@ -2088,6 +2138,10 @@ void WorldScene::Place( DynaPhysDSG*      ipDynaPhys )
        pSpatialNode = &(mStaticTreeWalker.rIthNode(0));
        if( ! pSpatialNode->mDPhysElems.Add(ipDynaPhys) )
        {
+#ifdef RAD_VITA
+           VitaPlaceFailed( "dynamic object" );
+           ipDynaPhys->mpSpatialNode = NULL;
+#endif
            rTuneAssert(false);
        }
        else
@@ -2119,7 +2173,18 @@ void WorldScene::Place( FenceEntityDSG*      ipFence )
    
    //mStaticTreeWalker.rSeekNode((ISpatialProxyAA&)DrawableSP).mFenceElems.Add(ipFence);
    SpatialNode* pSpatialNode = &(mStaticTreeWalker.rSeekNode((ISpatialProxyAA&)DrawableSP));
+#ifdef RAD_VITA
+   // This array does not check its size itself: one too many overwrites the memory behind it.
+   if( pSpatialNode->mFenceElems.mUseSize >= pSpatialNode->mFenceElems.mSize )
+   {
+      VitaPlaceFailed( "fence" );
+      ipFence->mpSpatialNode = NULL;
+      return;
+   }
    pSpatialNode->mFenceElems.Add(ipFence);
+#else
+   pSpatialNode->mFenceElems.Add(ipFence);
+#endif
    ipFence->mpSpatialNode = pSpatialNode;
 }
 //////////////////////////////////////////////////////////////////////////
@@ -2147,6 +2212,10 @@ void WorldScene::Place( AnimCollisionEntityDSG* ipAnimColl )
        pSpatialNode = &(mStaticTreeWalker.rIthNode(0));
        if( ! pSpatialNode->mAnimCollElems.Add(ipAnimColl) )
        {
+#ifdef RAD_VITA
+           VitaPlaceFailed( "animated collision object" );
+           ipAnimColl->mpSpatialNode = NULL;
+#endif
            rTuneAssert(false);
        }
        else
@@ -2187,6 +2256,10 @@ void WorldScene::Place( AnimEntityDSG* ipAnim )
        pSpatialNode = &(mStaticTreeWalker.rIthNode(0));
        if( ! pSpatialNode->mAnimElems.Add(ipAnim) )
        {
+#ifdef RAD_VITA
+           VitaPlaceFailed( "animated object" );
+           ipAnim->mpSpatialNode = NULL;
+#endif
            rTuneAssert(false);
        }
        else
@@ -2215,7 +2288,18 @@ void WorldScene::Place( TriggerVolume*           ipTriggerVolume )
    
    //mStaticTreeWalker.rSeekNode((ISpatialProxyAA&)DrawableSP).mTrigVolElems.Add(ipTriggerVolume);
    SpatialNode* pSpatialNode = &(mStaticTreeWalker.rSeekNode((ISpatialProxyAA&)DrawableSP));
+#ifdef RAD_VITA
+   // This array does not check its size itself: one too many overwrites the memory behind it.
+   if( pSpatialNode->mTrigVolElems.mUseSize >= pSpatialNode->mTrigVolElems.mSize )
+   {
+      VitaPlaceFailed( "trigger" );
+      ipTriggerVolume->mpSpatialNode = NULL;
+      return;
+   }
    pSpatialNode->mTrigVolElems.Add(ipTriggerVolume);
+#else
+   pSpatialNode->mTrigVolElems.Add(ipTriggerVolume);
+#endif
    ipTriggerVolume->mpSpatialNode = pSpatialNode;
 }
 
@@ -2235,7 +2319,18 @@ void WorldScene::Place( RoadSegment*           ipRoadSegment )
    
    //mStaticTreeWalker.rSeekNode((ISpatialProxyAA&)DrawableSP).mRoadSegmentElems.Add(ipRoadSegment);
    SpatialNode* pSpatialNode = &(mStaticTreeWalker.rSeekNode((ISpatialProxyAA&)DrawableSP));
+#ifdef RAD_VITA
+   // This array does not check its size itself: one too many overwrites the memory behind it.
+   if( pSpatialNode->mRoadSegmentElems.mUseSize >= pSpatialNode->mRoadSegmentElems.mSize )
+   {
+      VitaPlaceFailed( "road segment" );
+      ipRoadSegment->mpSpatialNode = NULL;
+      return;
+   }
    pSpatialNode->mRoadSegmentElems.Add(ipRoadSegment);
+#else
+   pSpatialNode->mRoadSegmentElems.Add(ipRoadSegment);
+#endif
    ipRoadSegment->mpSpatialNode = pSpatialNode;
 }
 
@@ -2255,7 +2350,18 @@ void WorldScene::Place( PathSegment*           ipPathSegment )
    
    //mStaticTreeWalker.rSeekNode((ISpatialProxyAA&)DrawableSP).mPathSegmentElems.Add(ipPathSegment);
    SpatialNode* pSpatialNode = &(mStaticTreeWalker.rSeekNode((ISpatialProxyAA&)DrawableSP));
+#ifdef RAD_VITA
+   // This array does not check its size itself: one too many overwrites the memory behind it.
+   if( pSpatialNode->mPathSegmentElems.mUseSize >= pSpatialNode->mPathSegmentElems.mSize )
+   {
+      VitaPlaceFailed( "path segment" );
+      ipPathSegment->mpSpatialNode = NULL;
+      return;
+   }
    pSpatialNode->mPathSegmentElems.Add(ipPathSegment);
+#else
+   pSpatialNode->mPathSegmentElems.Add(ipPathSegment);
+#endif
    ipPathSegment->mpSpatialNode = pSpatialNode;
 }
 
