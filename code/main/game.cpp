@@ -59,6 +59,7 @@
 #include <psp2/display.h>
 extern int g_vitaSmoothLoad;     // code/main/win32main.cpp
 extern int g_vitaFramePace;      // code/main/win32main.cpp
+extern int g_gxmVsync;           // pddi/gxm/display.cpp
 int VitaGetFrameRate();
 unsigned gxmChooseFrameVblanks();    // pddi/gxm/display.cpp
 
@@ -569,7 +570,7 @@ void Game::Run()
             static int lastVcount = sceDisplayGetVcount();
             const int vcount = sceDisplayGetVcount();
             const unsigned frameVblanks = gxmChooseFrameVblanks();
-            if( g_vitaFramePace )
+            if( g_vitaFramePace && g_gxmVsync )
             {
                 elapsed = pacer.ElapsedMs( frameVblanks, vcount - lastVcount );
             }

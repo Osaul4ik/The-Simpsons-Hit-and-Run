@@ -96,6 +96,9 @@ static void ProcessCommandLineArgumentsFromFile();
 //     smokebudget=25    how many whole screens the particles of a frame may cover, in tenths;
 //                       lower = smoke costs less and thins out sooner, 0 = no limit and no
 //                       fading near the camera
+//     vsync=0           1 = wait for the screen, then fps= sets the frame rate. Off, the picture can
+//                       tear and game time follows the clock
+//     fpscap=42         frames per second at most with vsync off; 0 = no limit
 //     pixcull=4         solid things with a smaller radius on screen, in pixels, are not drawn; 0 = all
 //     occlsort=1        0 = solid things are sorted by material alone, not near ones first
 //     occlusion=1       0 = no hardware visibility queries: objects hidden behind others are drawn too
@@ -123,6 +126,8 @@ int g_gxmFrameRate          = RAD_VITA_FRAME_RATE;             // read by gxmDis
 #ifdef RAD_LOG
 extern int g_vitaProfEnabled;                                  // code/debug/vitaprof.cpp
 #endif
+extern int g_gxmVsync;                                         // libs/pure3d/pddi/gxm/display.cpp
+extern int g_gxmFpsCap;                                        // libs/pure3d/pddi/gxm/display.cpp
 extern int g_vitaPixCull;                                      // code/render/Culling/WorldScene.cpp
 extern bool g_vitaOcclSort;                                    // code/render/Culling/WorldScene.cpp
 extern bool g_vitaOcclusion;                                   // code/render/Culling/WorldScene.cpp
@@ -208,6 +213,14 @@ static void LoadVitaConfig()
         else if( sscanf( line, "smokebudget=%d", &v ) == 1 )
         {
             g_vitaParticleBudget = (float)v * 0.1f;
+        }
+        else if( sscanf( line, "vsync=%d", &v ) == 1 )
+        {
+            g_gxmVsync = v != 0;
+        }
+        else if( sscanf( line, "fpscap=%d", &v ) == 1 )
+        {
+            g_gxmFpsCap = v < 0 ? 0 : v;
         }
         else if( sscanf( line, "pixcull=%d", &v ) == 1 )
         {

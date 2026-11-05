@@ -22,6 +22,8 @@
 extern int g_gxmFrameRate;
 static unsigned VblanksForNextFrame();
 static unsigned s_chosenVblanks = 0;
+int g_gxmVsync = 0;         // "vsync=1" in vita.cfg: wait for the screen, as on the main branch
+int g_gxmFpsCap = 42;       // "fpscap=" in vita.cfg, with vsync off; 0 = no limit
 
 // Enable the following define to allow Razor HUD.
 //#define ENABLE_RAZOR_HUD
@@ -488,6 +490,22 @@ void gxmDisplay::SetGamma(float r, float g, float b)
 
 void gxmDisplay::SwapBuffers(void)
 {
+    if(!g_gxmVsync && g_gxmFpsCap > 0)
+    {
+        // Without vsync nothing else holds the frame rate back. The next frame is due a fixed time
+        // after this one was, so one slow frame does not move all the later ones.
+        static SceUInt64 s_nextSwapUs = 0;
+        const SceUInt64 intervalUs = 1000000u / (unsigned)g_gxmFpsCap;
+        SceUInt64 now = sceKernelGetProcessTimeWide();
+        if(s_nextSwapUs > now)
+        {
+            sceKernelDelayThread((SceUInt32)(s_nextSwapUs - now));
+            now = sceKernelGetProcessTimeWide();
+        }
+        // More than a frame late: start over instead of rushing to catch up.
+        s_nextSwapUs = (s_nextSwapUs + intervalUs > now) ? s_nextSwapUs + intervalUs : now + intervalUs;
+    }
+
     // queue the display swap for this frame
     DisplayData displayData;
     displayData.address = displayBufferData[backBufferIndex];
@@ -553,7 +571,11 @@ void gxmDisplay::displayCallback(const void* callbackData)
     framebuf.pixelformat = SCE_DISPLAY_PIXELFORMAT_A8B8G8R8;
     framebuf.width = displayData->width;
     framebuf.height = displayData->height;
-    CHK_GXM(sceDisplaySetFrameBuf(&framebuf, SCE_DISPLAY_SETBUF_NEXTFRAME));
+    CHK_GXM(sceDisplaySetFrameBuf(&framebuf, g_gxmVsync ? SCE_DISPLAY_SETBUF_NEXTFRAME : SCE_DISPLAY_SETBUF_IMMEDIATE));
+    if(!g_gxmVsync)
+    {
+        return;     // shown at once, wherever the screen is in its refresh: it can tear
+    }
 
     // Block this callback until the swap has occurred and the old buffer
     // is no longer displayed. Waiting for 2 vblanks makes every frame stay on
