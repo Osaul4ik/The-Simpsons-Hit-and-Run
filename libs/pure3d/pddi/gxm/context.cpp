@@ -259,6 +259,7 @@ gxmContext::gxmContext(gxmDevice* dev, gxmDisplay* disp) : pddiBaseContext((pddi
     primPoolBytes = 0;
     primPoolHits = primPoolMisses = midSceneFlushes = statFrames = 0;
     *sceGxmGetNotificationRegion() = 0;
+    OcclInit();
 }
 
 gxmContext::~gxmContext()
@@ -319,6 +320,15 @@ void gxmContext::BeginFrame()
     }
 #endif
 
+    // The queries of this frame go to their own buffer: the last ones are still being read.
+    if(occlBuffer != NULL)
+    {
+        ++occlFrame;
+        occlUsed = 0;
+        CHK_GXM(sceGxmSetVisibilityBuffer(context, occlBuffer + (occlFrame % OCCL_RING) * OCCL_QUERIES * OCCL_CORES,
+                                          OCCL_QUERIES * sizeof(unsigned)));
+    }
+
     CHK_GXM(sceGxmBeginScene(
         context,
         0,
@@ -361,7 +371,8 @@ void gxmContext::EndFrame()
 {
     pddiBaseContext::EndFrame();
 
-    CHK_GXM(sceGxmEndScene(context, &streamsHead, NULL));
+    const SceGxmNotification occlNotification = { occlDone, occlFrame };
+    CHK_GXM(sceGxmEndScene(context, &streamsHead, occlBuffer != NULL ? &occlNotification : NULL));
     inScene = false;
     CHK_GXM(sceGxmPadHeartbeat(display->GetColorSurface(), display->GetFragementSyncObj()));
 }
@@ -1460,6 +1471,61 @@ float gxmContext::EndTiming(void)
 {
     return display->EndTiming();
 }
+
+extern IRadMemoryHeap* g_pIRadMemoryHeap_User;   // GPU mapped and not cached by the CPU
+
+void gxmContext::OcclInit()
+{
+    occlBuffer = NULL;
+    occlFrame = 0;
+    occlUsed = 0;
+    occlDone = sceGxmGetNotificationRegion() + 1;   // the first one is streamsHead
+    *occlDone = 0;
+    void* memory = NULL;
+    if(g_pIRadMemoryHeap_User != NULL)
+    {
+        memory = g_pIRadMemoryHeap_User->GetMemoryAligned(OCCL_RING * OCCL_QUERIES * OCCL_CORES * sizeof(unsigned), 4096);
+    }
+    occlBuffer = (unsigned*)memory;
+    rReleasePrintf("[occl] visibility buffers: %s\n", occlBuffer != NULL ? "ok" : "no memory");
+}
+
+bool gxmContext::OcclBegin(unsigned short* index)
+{
+    if(occlBuffer == NULL || !inScene || occlUsed >= OCCL_QUERIES)
+        return false;
+    *index = (unsigned short)occlUsed++;
+    unsigned* frameBuffer = occlBuffer + (occlFrame % OCCL_RING) * OCCL_QUERIES * OCCL_CORES;
+    for(int core = 0; core < OCCL_CORES; core++)
+        frameBuffer[*index + core * OCCL_QUERIES] = 0;
+    sceGxmSetFrontVisibilityTestOp(context, SCE_GXM_VISIBILITY_TEST_OP_SET);
+    sceGxmSetBackVisibilityTestOp(context, SCE_GXM_VISIBILITY_TEST_OP_SET);
+    sceGxmSetFrontVisibilityTestIndex(context, *index);
+    sceGxmSetBackVisibilityTestIndex(context, *index);
+    sceGxmSetFrontVisibilityTestEnable(context, SCE_GXM_VISIBILITY_TEST_ENABLED);
+    sceGxmSetBackVisibilityTestEnable(context, SCE_GXM_VISIBILITY_TEST_ENABLED);
+    return true;
+}
+
+void gxmContext::OcclEnd()
+{
+    sceGxmSetFrontVisibilityTestEnable(context, SCE_GXM_VISIBILITY_TEST_DISABLED);
+    sceGxmSetBackVisibilityTestEnable(context, SCE_GXM_VISIBILITY_TEST_DISABLED);
+}
+
+int gxmContext::OcclResult(unsigned frame, unsigned short index) const
+{
+    if(occlBuffer == NULL || occlFrame - frame >= OCCL_RING - 1)
+        return -2;     // its buffer is in use again, or about to be
+    if((int)(*occlDone - frame) < 0)
+        return -1;     // the GPU has not finished that frame
+    const unsigned* frameBuffer = occlBuffer + (frame % OCCL_RING) * OCCL_QUERIES * OCCL_CORES;
+    unsigned samples = 0;
+    for(int core = 0; core < OCCL_CORES; core++)
+        samples += frameBuffer[index + core * OCCL_QUERIES];
+    return samples != 0 ? 1 : 0;
+}
+
 
 void gxmContext::SetFragmentShader(SceGxmFragmentProgram* frag)
 {

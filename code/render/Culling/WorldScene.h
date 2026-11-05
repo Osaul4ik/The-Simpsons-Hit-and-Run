@@ -110,6 +110,9 @@ public:
    {
        IEntityDSG* entityPtr;
        tUID shaderUID;
+#ifdef RAD_VITA
+       unsigned char distanceBand;   // WorldScene::RenderOpaque
+#endif
    };
 
    void SetRenderAll(bool iRenderAll){ mRenderAll = iRenderAll; }

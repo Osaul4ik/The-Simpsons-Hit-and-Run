@@ -104,6 +104,10 @@ public:
 #ifdef RAD_VITA
    bool  mDrawAfterGuts = false;     // WorldScene::RenderAfterGuts
    bool  mZoneAsleep = false;        // its zone waits in the zone cache: in memory, not drawn
+   unsigned mOcclQueryFrame = 0;     // WorldScene::RenderOpaque: the frame of its running query, 0 = none
+   unsigned mOcclLastSeen = 0;       // the last frame it was up for drawing
+   unsigned short mOcclQueryIndex = 0;
+   unsigned char mOcclHidden = 0;    // how many queries in a row found no visible pixel
 #endif
    tName mShaderName;
    static bool msDeletionsSafe;

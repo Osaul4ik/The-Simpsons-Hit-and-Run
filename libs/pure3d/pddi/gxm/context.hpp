@@ -141,6 +141,20 @@ public:
     // Fragment program and texture 0, written only when they differ from what is bound.
     void SetFragmentShader(SceGxmFragmentProgram* frag);
     void SetFragmentTexture0(const SceGxmTexture* texture);
+
+    // Hardware visibility queries, see WorldScene::RenderOpaque. Results are read without waiting.
+    enum { OCCL_QUERIES = 1024, OCCL_RING = 4, OCCL_CORES = 4 };
+    unsigned OcclFrame() const { return occlFrame; }
+    bool OcclBegin(unsigned short* index);      // false: none free this frame
+    void OcclEnd();
+    // 1 = done and it had visible pixels, 0 = done and it had none, -1 = not done, -2 = too old
+    int OcclResult(unsigned frame, unsigned short index) const;
+protected:
+    void OcclInit();
+    unsigned* occlBuffer;
+    unsigned occlFrame;
+    unsigned occlUsed;
+    volatile unsigned int* occlDone;
 protected:
     void FlushVertexStreams();
 

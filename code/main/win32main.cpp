@@ -96,6 +96,8 @@ static void ProcessCommandLineArgumentsFromFile();
 //     smokebudget=25    how many whole screens the particles of a frame may cover, in tenths;
 //                       lower = smoke costs less and thins out sooner, 0 = no limit and no
 //                       fading near the camera
+//     occlsort=1        0 = solid things are sorted by material alone, not near ones first
+//     occlusion=1       0 = no hardware visibility queries: objects hidden behind others are drawn too
 //     framecull=1       0 = things above and below the picture are drawn too, as in the original
 //     skylineall=0      1 = the big landmarks of zones asleep in memory are drawn too, for more
 //                       draw calls
@@ -120,6 +122,8 @@ int g_gxmFrameRate          = RAD_VITA_FRAME_RATE;             // read by gxmDis
 #ifdef RAD_LOG
 extern int g_vitaProfEnabled;                                  // code/debug/vitaprof.cpp
 #endif
+extern bool g_vitaOcclSort;                                    // code/render/Culling/WorldScene.cpp
+extern bool g_vitaOcclusion;                                   // code/render/Culling/WorldScene.cpp
 extern bool g_vitaFrameCull;                                   // code/render/Culling/WorldScene.cpp
 extern bool g_vitaSkylineAll;                                  // code/render/RenderManager/WorldRenderLayer.cpp
 extern bool g_vitaNpcFarCadence;                               // code/worldsim/character/character.cpp
@@ -202,6 +206,14 @@ static void LoadVitaConfig()
         else if( sscanf( line, "smokebudget=%d", &v ) == 1 )
         {
             g_vitaParticleBudget = (float)v * 0.1f;
+        }
+        else if( sscanf( line, "occlsort=%d", &v ) == 1 )
+        {
+            g_vitaOcclSort = v != 0;
+        }
+        else if( sscanf( line, "occlusion=%d", &v ) == 1 )
+        {
+            g_vitaOcclusion = v != 0;
         }
         else if( sscanf( line, "framecull=%d", &v ) == 1 )
         {

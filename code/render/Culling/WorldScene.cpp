@@ -1,3 +1,7 @@
+#ifdef RAD_VITA
+#include <pddi/gxm/gxm.hpp>
+#include <pddi/gxm/context.hpp>
+#endif
 #include <typeinfo>
 #include <render/Culling/WorldScene.h>
 #include <render/Culling/SpatialTreeFactory.h>
@@ -93,6 +97,18 @@ inline bool gShaderCompare( const WorldScene::zSortBlah& pArg1, const WorldScene
 {
     return pArg1.shaderUID < pArg2.shaderUID;        
 }
+
+#ifdef RAD_VITA
+// The list is drawn from its end: the far band goes first in the list, so the near one is drawn first.
+inline bool gBandShaderCompare( const WorldScene::zSortBlah& pArg1, const WorldScene::zSortBlah& pArg2 )
+{
+    if( pArg1.distanceBand != pArg2.distanceBand )
+    {
+        return pArg1.distanceBand > pArg2.distanceBand;
+    }
+    return pArg1.shaderUID < pArg2.shaderUID;
+}
+#endif
 
 inline bool gTestZ( IEntityDSG* pArg1, IEntityDSG* pArg2 )
 {
@@ -304,6 +320,10 @@ float g_vitaCullMargin = 4.0f;          // "cullmargin=" in vita.cfg, metres
 // The cone below is as wide as the screen and just as high, so a 16:9 view draws a lot above and
 // below the picture. "framecull=0" in vita.cfg leaves it at the cone.
 bool g_vitaFrameCull = true;
+bool g_vitaOcclusion = true;    // "occlusion=0" in vita.cfg
+bool g_vitaOcclSort = true;     // "occlsort=0" in vita.cfg: sorted by material alone, as in the original
+#define VITA_OCCL_NEAR_METRES 30.0f   // closer than this is always drawn: a late pop would show
+static unsigned s_occlQueries = 0, s_occlFoundHidden = 0, s_occlSkipped = 0, s_occlFrames = 0;
 static float s_planeInside[4] = { 1.0f, 1.0f, 1.0f, 1.0f };     // which side of each plane is inside
 static unsigned s_cullInCone = 0, s_cullOutOfFrame = 0, s_cullBeyondDrawDist = 0, s_cullFrames = 0;
 #endif
@@ -1575,6 +1595,24 @@ END_PROFILE("list construction")
 #ifndef TEST_DISTRIBUTED_SORT
     BEGIN_PROFILE("qsort1")
 	    //qsort(mpZSorts.mpData, (size_t)mpZSorts.mUseSize, sizeof(zSortBlah), gShaderCompare);
+#ifdef RAD_VITA
+        if( g_vitaOcclusion && g_vitaOcclSort )
+        {
+            // Roughly front to back, so that the visibility queries see the near things that hide
+            // the far ones. Bands, not exact order: within a band the materials still stay together.
+            for( unsigned int i = 0; i < mpZSorts.size(); i++ )
+            {
+                rmt::Sphere sphere;
+                mpZSorts[i].entityPtr->GetBoundingSphere( &sphere );
+                rmt::Vector toCamera;
+                toCamera.Sub( mViewPosn, sphere.centre );
+                const float front = rmt::Sqrt( toCamera.MagnitudeSqr() ) - sphere.radius;
+                mpZSorts[i].distanceBand = front < 25.0f ? 0 : front < 60.0f ? 1 : front < 120.0f ? 2 : 3;
+            }
+            std::sort( mpZSorts.begin(), mpZSorts.end(), gBandShaderCompare );
+        }
+        else
+#endif
         std::sort( mpZSorts.begin(), mpZSorts.end(), gShaderCompare );
     END_PROFILE("qsort1")
 
@@ -1810,9 +1848,70 @@ void WorldScene::RenderOpaque( void )
 #endif
 DSG_SET_PROFILE('O')
 BEGIN_PROFILE("qsort display")	
+#ifdef RAD_VITA
+    gxmContext* const occl = g_vitaOcclusion && !mRenderAll ? static_cast<gxmContext*>( p3d::pddi ) : NULL;
+    const unsigned occlFrame = occl != NULL ? occl->OcclFrame() : 0;
+#endif
  	for(int i=mpZSorts.size() - 1; i>-1; i--)
 	{
 //BEGIN_PROFILE("opaque inner")	
+#ifdef RAD_VITA
+        // Hardware visibility queries. Without waiting, the result of an earlier frame says that
+        // none of an object's pixels survived the depth test. Such an object can be left out, and
+        // is drawn again on every 4th frame so that its query can say when it comes into view.
+        // The queries see what was drawn before the object, so they only ever find too much.
+        if( occl != NULL )
+        {
+            IEntityDSG* const e = mpZSorts[i].entityPtr;
+            const bool wasInView = occlFrame - e->mOcclLastSeen <= 1;
+            e->mOcclLastSeen = occlFrame;
+            if( !wasInView )
+            {
+                e->mOcclHidden = 0;     // it comes back into view: nothing is known about it
+            }
+            if( e->mOcclQueryFrame != 0 )
+            {
+                const int result = occl->OcclResult( e->mOcclQueryFrame, e->mOcclQueryIndex );
+                if( result != -1 )
+                {
+                    if( result == 0 )
+                    {
+                        if( e->mOcclHidden < 255 ) { ++e->mOcclHidden; }
+                        ++s_occlFoundHidden;
+                    }
+                    else
+                    {
+                        e->mOcclHidden = 0;
+                    }
+                    e->mOcclQueryFrame = 0;
+                }
+            }
+            const unsigned phase = occlFrame + ( (unsigned)(size_t)e >> 4 );
+            if( e->mOcclHidden >= 2 && ( phase & 3 ) != 0 )
+            {
+                rmt::Sphere sphere;
+                e->GetBoundingSphere( &sphere );
+                rmt::Vector toCamera;
+                toCamera.Sub( mViewPosn, sphere.centre );
+                const float near = sphere.radius + VITA_OCCL_NEAR_METRES;
+                if( toCamera.MagnitudeSqr() > near * near )
+                {
+                    ++s_occlSkipped;
+                    continue;
+                }
+            }
+            // A hidden object asks on each drawing, a visible one on every 8th frame.
+            if( e->mOcclQueryFrame == 0 && ( e->mOcclHidden != 0 || ( phase & 7 ) == 0 ) &&
+                occl->OcclBegin( &e->mOcclQueryIndex ) )
+            {
+                e->mOcclQueryFrame = occlFrame;
+                ++s_occlQueries;
+                e->Display();
+                occl->OcclEnd();
+                continue;
+            }
+        }
+#endif
 		mpZSorts[i].entityPtr->Display();
 #ifdef TRACK_SHADERS
             UniqueShaders[mpZSorts[i].entityPtr->GetShaderUID()]++;
@@ -1820,6 +1919,14 @@ BEGIN_PROFILE("qsort display")
 //END_PROFILE("opaque inner")	
 	}
 END_PROFILE("qsort display")
+#ifdef RAD_VITA
+    if( occl != NULL && ++s_occlFrames >= 600 )
+    {
+        rReleasePrintf( "[occl] per frame: %u opaque things, %u queries, %u found hidden, %u left out\n",
+                        (unsigned)mpZSorts.size(), s_occlQueries / s_occlFrames, s_occlFoundHidden / s_occlFrames, s_occlSkipped / s_occlFrames );
+        s_occlQueries = s_occlFoundHidden = s_occlSkipped = s_occlFrames = 0;
+    }
+#endif
 }
 
 void WorldScene::RenderTranslucent( void )
