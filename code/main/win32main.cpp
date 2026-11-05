@@ -97,11 +97,12 @@ static void ProcessCommandLineArgumentsFromFile();
 //     smokebudget=25    how many whole screens the particles of a frame may cover, in tenths;
 //                       lower = smoke costs less and thins out sooner, 0 = no limit and no
 //                       fading near the camera
-//     pixcull=2         solid things with a smaller radius on screen, in pixels, are not drawn; 0 = all
-//     occlsort=1        0 = solid things are sorted by material alone, not near ones first
-//     occlnear=50       metres within which hidden objects are still drawn, so that they cannot appear late
-//     occlusion=1       0 = no hardware visibility queries: objects hidden behind others are drawn too
-//     framecull=1       0 = things above and below the picture are drawn too, as in the original
+//     pixcull=0         solid things with a smaller radius on screen, in pixels, are not drawn; 0 = all
+//     occlsort=1        with occlusion=1: 0 = solid things are sorted by material alone, not near ones first
+//     occlnear=50       with occlusion=1: metres within which hidden objects are still drawn
+//     occlusion=0       1 = hardware visibility queries leave out objects hidden behind others; they
+//                       can appear a few frames late
+//     framecull=0       1 = things above and below the picture are not drawn
 //     skylineall=0      1 = the big landmarks of zones asleep in memory are drawn too, for more
 //                       draw calls
 //     npcfar=1          0 = pedestrians past 38 m run their actions every frame, not every 4th

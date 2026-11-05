@@ -319,11 +319,11 @@ float g_vitaCullMargin = 4.0f;          // "cullmargin=" in vita.cfg, metres
 
 // The cone below is as wide as the screen and just as high, so a 16:9 view draws a lot above and
 // below the picture. "framecull=0" in vita.cfg leaves it at the cone.
-bool g_vitaFrameCull = true;
-int g_vitaPixCull = 2;          // "pixcull=" in vita.cfg: solid things smaller than this radius on screen, in pixels
+bool g_vitaFrameCull = false;
+int g_vitaPixCull = 0;          // "pixcull=" in vita.cfg: solid things smaller than this radius on screen, in pixels
 static float s_pixPerUnit = 800.0f;     // radius / distance to pixels on the 960 wide screen
 static unsigned s_pixUnder2 = 0, s_pixUnder4 = 0, s_pixUnder8 = 0;
-bool g_vitaOcclusion = true;    // "occlusion=0" in vita.cfg
+bool g_vitaOcclusion = false;   // "occlusion=1" in vita.cfg
 bool g_vitaOcclSort = true;     // "occlsort=0" in vita.cfg: sorted by material alone, as in the original
 float g_vitaOcclNear = 50.0f;   // "occlnear=" in vita.cfg, metres: closer than this is always drawn, a late pop would show
 static unsigned s_occlQueries = 0, s_occlFoundHidden = 0, s_occlSkipped = 0, s_occlFrames = 0;
