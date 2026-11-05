@@ -1595,6 +1595,10 @@ int WorldRenderLayer::GetFreeDynaLoadLists()
 // keep costing CPU. The entities stay in the world (spatial tree); only their
 // registration in the manager changes. Mirrors what AddGuts() did at load time.
 //
+#ifdef RAD_VITA
+extern float g_vitaLandmarkRadius;   // render/Culling/WorldScene.cpp
+#endif
+
 int WorldRenderLayer::SetDynaZoneActive(tName& irGiveItAFuckinName, bool active)
 {
    int toggled = 0;
@@ -1607,6 +1611,44 @@ int WorldRenderLayer::SetDynaZoneActive(tName& irGiveItAFuckinName, bool active)
       if( list->mSuspended == !active )
          return 0;   // already in the requested state
       list->mSuspended = !active;
+
+#ifdef RAD_VITA
+      // Zones in the zone cache are not drawn: a zone's tree walls and backdrops are made to be seen
+      // only from around it, and stand in the view elsewhere. The skyline stays, see WorldScene::Place.
+      rmt::Sphere sphere;
+      for(int j=0;j<list->mSEntityElems.mUseSize;j++)
+      {
+         IEntityDSG* e = list->mSEntityElems[j];
+         e->GetBoundingSphere( &sphere );
+         const bool landmark = g_vitaLandmarkRadius > 0.0f && sphere.radius >= g_vitaLandmarkRadius;
+         e->mZoneAsleep = !active && !landmark;
+         if( active && !landmark ) { VITA_FADE_IN( e ); }
+      }
+      for(int j=0;j<list->mSPhysElems.mUseSize;j++)
+      {
+         IEntityDSG* e = list->mSPhysElems[j];
+         e->mZoneAsleep = !active;
+         if( active ) { VITA_FADE_IN( e ); }
+      }
+      for(int j=0;j<list->mDPhysElems.mUseSize;j++)
+      {
+         IEntityDSG* e = list->mDPhysElems[j];
+         e->mZoneAsleep = !active;
+         if( active ) { VITA_FADE_IN( e ); }
+      }
+      for(int j=0;j<list->mAnimCollElems.mUseSize;j++)
+      {
+         IEntityDSG* e = list->mAnimCollElems[j];
+         e->mZoneAsleep = !active;
+         if( active ) { VITA_FADE_IN( e ); }
+      }
+      for(int j=0;j<list->mAnimElems.mUseSize;j++)
+      {
+         IEntityDSG* e = list->mAnimElems[j];
+         e->mZoneAsleep = !active;
+         if( active ) { VITA_FADE_IN( e ); }
+      }
+#endif
 
       for(int j=0;j<list->mAnimElems.mUseSize;j++)
       {

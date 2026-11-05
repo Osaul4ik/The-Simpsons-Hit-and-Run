@@ -1130,6 +1130,12 @@ BEGIN_PROFILE("list construction")
         for( i= mStaticTreeWalker.rCurrent().mSEntityElems.mUseSize-1; i>-1; i-- )
         {
 #ifdef ZSORT_RENDER
+#ifdef RAD_VITA
+            if( mStaticTreeWalker.rCurrent().mSEntityElems[i]->mZoneAsleep )
+            {
+                continue;
+            }
+#endif
             mStaticTreeWalker.rCurrent().mSEntityElems[i]->GetBoundingSphere(&ObjectSphere);
             if(!IsSphereInCone(ObjectSphere.centre, ObjectSphere.radius))
                 continue;
@@ -1191,6 +1197,12 @@ BEGIN_PROFILE("list construction")
         for( i= mStaticTreeWalker.rCurrent().mAnimCollElems.mUseSize-1; i>-1; i-- )
         {
 #ifdef ZSORT_RENDER
+#ifdef RAD_VITA
+            if( mStaticTreeWalker.rCurrent().mAnimCollElems[i]->mZoneAsleep )
+            {
+                continue;
+            }
+#endif
             mStaticTreeWalker.rCurrent().mAnimCollElems[i]->GetBoundingSphere(&ObjectSphere);
             if(!IsSphereInCone(ObjectSphere.centre, ObjectSphere.radius))
                 continue;
@@ -1253,6 +1265,12 @@ BEGIN_PROFILE("list construction")
          //   if( mStaticTreeWalker.rCurrent().mAnimElems[i]->GetUID() == tName::MakeUID("smokecolumn") )
          //       rReleasePrintf("n");
 
+#ifdef RAD_VITA
+            if( mStaticTreeWalker.rCurrent().mAnimElems[i]->mZoneAsleep )
+            {
+                continue;
+            }
+#endif
             mStaticTreeWalker.rCurrent().mAnimElems[i]->GetBoundingSphere(&ObjectSphere);
             if(!IsSphereInCone(ObjectSphere.centre, ObjectSphere.radius))
                 continue;
@@ -1314,6 +1332,12 @@ BEGIN_PROFILE("list construction")
 #ifdef ZSORT_RENDER
 #ifdef DEBUGWATCH
       //      unsigned int dbwt=radTimeGetMicroseconds();
+#endif
+#ifdef RAD_VITA
+            if( mStaticTreeWalker.rCurrent().mDPhysElems[i]->mZoneAsleep )
+            {
+                continue;
+            }
 #endif
             mStaticTreeWalker.rCurrent().mDPhysElems[i]->GetBoundingSphere(&ObjectSphere);
             if(!IsSphereInCone(ObjectSphere.centre, ObjectSphere.radius))
@@ -1390,6 +1414,12 @@ BEGIN_PROFILE("list construction")
 #ifdef ZSORT_RENDER
 #ifdef DEBUGWATCH
     //        unsigned int dbwt=radTimeGetMicroseconds();
+#endif
+#ifdef RAD_VITA
+            if( mStaticTreeWalker.rCurrent().mSPhysElems[i]->mZoneAsleep )
+            {
+                continue;
+            }
 #endif
             mStaticTreeWalker.rCurrent().mSPhysElems[i]->GetBoundingSphere(&ObjectSphere);
             if(!IsSphereInCone(ObjectSphere.centre, ObjectSphere.radius))

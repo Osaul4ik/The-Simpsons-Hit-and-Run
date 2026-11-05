@@ -103,6 +103,7 @@ public:
    bool  mTranslucent;
 #ifdef RAD_VITA
    bool  mDrawAfterGuts = false;     // WorldScene::RenderAfterGuts
+   bool  mZoneAsleep = false;        // its zone waits in the zone cache: in memory, not drawn
 #endif
    tName mShaderName;
    static bool msDeletionsSafe;
