@@ -94,6 +94,8 @@ static void ProcessCommandLineArgumentsFromFile();
 //     smokebudget=25    how many whole screens the particles of a frame may cover, in tenths;
 //                       lower = smoke costs less and thins out sooner, 0 = no limit and no
 //                       fading near the camera
+//     npcfar=1          0 = pedestrians past 25 m run their actions every frame, not every 4th
+//     pedlimit=7        most pedestrians at once, 0 to 7; fewer costs less and shows fewer people
 //     trilinear=1       0 = nearest mip level instead of blending between levels
 //     fastshaders=1     0 = only the packaged shaders, no runtime compiled variants
 //     hwskin=1          0 = skin on the CPU (NEON) even when the shaders compiled
@@ -112,6 +114,8 @@ int g_gxmFrameRate          = RAD_VITA_FRAME_RATE;             // read by gxmDis
 #ifdef RAD_LOG
 extern int g_vitaProfEnabled;                                  // code/debug/vitaprof.cpp
 #endif
+extern bool g_vitaNpcFarCadence;                               // code/worldsim/character/character.cpp
+extern int g_vitaPedLimit;                                     // code/worldsim/ped/pedestrianmanager.cpp
 extern float g_vitaSmallThingDist;                             // code/render/Culling/WorldScene.cpp
 extern float g_vitaParticleBudget;                             // p3d/effects/particleemitter.cpp
 extern float g_vitaLandmarkRadius;                             // render/Culling/WorldScene.cpp
@@ -190,6 +194,14 @@ static void LoadVitaConfig()
         else if( sscanf( line, "smokebudget=%d", &v ) == 1 )
         {
             g_vitaParticleBudget = (float)v * 0.1f;
+        }
+        else if( sscanf( line, "npcfar=%d", &v ) == 1 )
+        {
+            g_vitaNpcFarCadence = v != 0;
+        }
+        else if( sscanf( line, "pedlimit=%d", &v ) == 1 )
+        {
+            g_vitaPedLimit = v < 0 ? 0 : ( v > 7 ? 7 : v );
         }
         else if( sscanf( line, "soundthread=%d", &v ) == 1 )
         {

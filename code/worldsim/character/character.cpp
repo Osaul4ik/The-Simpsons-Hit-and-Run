@@ -268,6 +268,10 @@ Return:         void
 
 =============================================================================
 */
+#ifdef RAD_VITA
+bool g_vitaNpcFarCadence = true;     // "npcfar=" in vita.cfg, code/main/win32main.cpp
+#endif
+
 void NPCharacter::OnUpdateRoot( float timeins )
 {
     // Intentionall left blank.
@@ -1568,6 +1572,20 @@ void Character::PreSimUpdate( float timeins )
 
     unsigned int modulo = 0x7;
     unsigned int frameCount = GetGame()->GetFrameCount();
+#ifdef RAD_VITA
+    // A pedestrian past 25 m that is only walking: its actions and puppet run on every
+    // 4th frame with the time gathered since, the path it already takes off screen.
+    const bool lowDetailActions = g_vitaNpcFarCadence &&
+        mRole == ROLE_PEDESTRIAN && mTooFarToUpdate && mbInAnyonesFrustrum &&
+        mbSimpleLoco && mpTargetVehicle == NULL && mpSimStateObj != NULL &&
+        mpSimStateObj->GetControl() != sim::simSimulationCtrl;
+    if( lowDetailActions )
+    {
+        modulo = 0x3;
+    }
+#else
+    const bool lowDetailActions = false;
+#endif
 
     mSecondsSinceActionControllerUpdate += timeins;
     
@@ -1576,7 +1594,7 @@ void Character::PreSimUpdate( float timeins )
     if(        
                 !mIsNPC 
             || 
-                (mbInAnyonesFrustrum) 
+                (mbInAnyonesFrustrum && !lowDetailActions) 
             || 
                 ((frameCount & modulo) == (mIntersectFrame & modulo)
             || 
@@ -2009,9 +2027,23 @@ void Character::PostSimUpdate( float timeins )
     // determine how frequently we need to make some of the expensive calls
     unsigned int modulo = 0x7;
     unsigned int frameCount = GetGame()->GetFrameCount();
+#ifdef RAD_VITA
+    // A pedestrian past 25 m that is only walking: its actions and puppet run on every
+    // 4th frame with the time gathered since, the path it already takes off screen.
+    const bool lowDetailActions = g_vitaNpcFarCadence &&
+        mRole == ROLE_PEDESTRIAN && mTooFarToUpdate && mbInAnyonesFrustrum &&
+        mbSimpleLoco && mpTargetVehicle == NULL && mpSimStateObj != NULL &&
+        mpSimStateObj->GetControl() != sim::simSimulationCtrl;
+    if( lowDetailActions )
+    {
+        modulo = 0x3;
+    }
+#else
+    const bool lowDetailActions = false;
+#endif
     bool shouldUpdate = !mIsNPC || // update the PC at full rate
                         IsInCar() || // or parent transform will get screwed
-                        (mbInAnyonesFrustrum) || // update if we are visible
+                        (mbInAnyonesFrustrum && !lowDetailActions) || // update if we are visible
                         ((frameCount & modulo) == (mIntersectFrame & modulo));
 
 BEGIN_PROFILE("OnPostSimUpdate")
@@ -2023,7 +2055,8 @@ BEGIN_PROFILE("OnPostSimUpdate")
         mSecondsSinceOnPostSimUpdate = 0.0f;
     }
 
-    mbNeedChoreoUpdate = mbNeedChoreoUpdate && shouldUpdate && (!mTooFarToUpdate || ((frameCount & modulo) == (mIntersectFrame & modulo)));
+    // 0x7, not modulo: the distant pose keeps its original rate whatever the actions do.
+    mbNeedChoreoUpdate = mbNeedChoreoUpdate && shouldUpdate && (!mTooFarToUpdate || ((frameCount & 0x7) == (mIntersectFrame & 0x7)));
 
 END_PROFILE("OnPostSimUpdate")
 
@@ -4855,7 +4888,9 @@ void Character::Display(void)
     
     if( mbNeedChoreoUpdate)
     {
+BEGIN_PROFILE("Char UpdatePose")
         mpPuppet->UpdatePose( );
+END_PROFILE("Char UpdatePose")
 		mbNeedChoreoUpdate = false;
     }
 
@@ -4877,7 +4912,9 @@ void Character::Display(void)
     }
 
     mpPuppet->GetP3DPose()->SetSkeleton(mpCharacterRenderable->GetDrawable()->GetSkeleton());
+BEGIN_PROFILE("Char UpdateEnd")
     mpPuppet->UpdateEnd( );
+END_PROFILE("Char UpdateEnd")
 
     static float JumpRatio = 0.0f;
     if( JumpRatio == 0.0f && ( GetJumpHeight() != 0.0f ) )
@@ -4916,8 +4953,17 @@ void Character::Display(void)
     
     bool shouldScale = mScale != 1.0f;
 
+BEGIN_PROFILE("Char joints to origin")
     for(int i = 0; i < pose->GetNumJoint(); i++)
     {
+#ifdef RAD_VITA
+        // backToTheOrigin is a pure translation, so the product only moves row 3.
+        if(!shouldScale)
+        {
+            pose->GetJoint(i)->worldMatrix.Row(3).Add(backToTheOrigin.Row(3));
+            continue;
+        }
+#endif
         rmt::Matrix tmp;
         tmp.Mult(pose->GetJoint(i)->worldMatrix, backToTheOrigin);
         if(shouldScale)
@@ -4932,6 +4978,7 @@ void Character::Display(void)
             pose->GetJoint(i)->worldMatrix = tmp;
         }
     }
+END_PROFILE("Char joints to origin")
 
     p3d::stack->Push();
     p3d::stack->Translate(0.0f, mYAdjust, 0.0f);

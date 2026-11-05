@@ -1307,8 +1307,18 @@ void PedestrianManager::HandleEvent( EventEnum id, void* pEventData )
 }
 
 
+#ifdef RAD_VITA
+int g_vitaPedLimit = PedestrianManager::MAX_PEDESTRIANS;   // "pedlimit=" in vita.cfg, code/main/win32main.cpp
+#endif
+
 void PedestrianManager::AddPeds( rmt::Vector center, float addRadius )
 {
+#ifdef RAD_VITA
+    if( mActivePeds.GetNumElems() >= g_vitaPedLimit )
+    {
+        return;
+    }
+#endif
     if( CommandLineOptions::Get( CLO_NO_PEDS ) )
     {
         return;
