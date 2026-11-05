@@ -63,10 +63,12 @@ extern "C" void vitaProfAdd(const char* name, unsigned microseconds);
 // 31 + bias, valid range -31..32). There is no anisotropic filtering, so the sharper level is chosen
 // from the compressed axis and a road seen at a low angle would go blurry right in front of the
 // camera without this. Closer to 0: less shimmering, more blur. -8: base level until 2:1 minification.
+// -11: every level reaches 2^(3/8) = 30% farther than with -8. "lodbias=" in vita.cfg overrides it.
 #ifndef RAD_GXM_TEXTURE_LOD_BIAS_EIGHTHS
-#define RAD_GXM_TEXTURE_LOD_BIAS_EIGHTHS -8
+#define RAD_GXM_TEXTURE_LOD_BIAS_EIGHTHS -11
 #endif
 static_assert(RAD_GXM_TEXTURE_LOD_BIAS_EIGHTHS >= -31 && RAD_GXM_TEXTURE_LOD_BIAS_EIGHTHS <= 32, "GXM LOD bias out of range");
+int g_gxmLodBiasEighths = RAD_GXM_TEXTURE_LOD_BIAS_EIGHTHS;   // read before the first texture is made
 
 // Textures whose smaller side is below this many pixels get no mip chain: they hardly ever
 // shimmer and the +33% memory is better spent elsewhere. Must be a power of two >= 16.
@@ -769,7 +771,7 @@ bool gxmTexture::Create(int x, int y, int bpp, int alphaDepth, int nMip, pddiTex
         {
             CHK_GXM(sceGxmTextureInitSwizzled(&texture, bits, PickPixelFormat(lock.format), xSize, ySize, mipCount));
             if(mipCount > 1)
-                CHK_GXM(sceGxmTextureSetLodBias(&texture, 31 + RAD_GXM_TEXTURE_LOD_BIAS_EIGHTHS));
+                CHK_GXM(sceGxmTextureSetLodBias(&texture, 31 + g_gxmLodBiasEighths));
             // mips are filled when level 0 is unlocked (P8: when the palette arrives)
             validMips = (palettized && mipCount > 1) ? 1 : mipCount;
             if(validMips != mipCount)

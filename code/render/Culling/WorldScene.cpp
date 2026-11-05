@@ -320,12 +320,12 @@ float g_vitaCullMargin = 4.0f;          // "cullmargin=" in vita.cfg, metres
 // The cone below is as wide as the screen and just as high, so a 16:9 view draws a lot above and
 // below the picture. "framecull=0" in vita.cfg leaves it at the cone.
 bool g_vitaFrameCull = true;
-int g_vitaPixCull = 4;          // "pixcull=" in vita.cfg: solid things smaller than this radius on screen, in pixels
+int g_vitaPixCull = 2;          // "pixcull=" in vita.cfg: solid things smaller than this radius on screen, in pixels
 static float s_pixPerUnit = 800.0f;     // radius / distance to pixels on the 960 wide screen
 static unsigned s_pixUnder2 = 0, s_pixUnder4 = 0, s_pixUnder8 = 0;
 bool g_vitaOcclusion = true;    // "occlusion=0" in vita.cfg
 bool g_vitaOcclSort = true;     // "occlsort=0" in vita.cfg: sorted by material alone, as in the original
-#define VITA_OCCL_NEAR_METRES 30.0f   // closer than this is always drawn: a late pop would show
+float g_vitaOcclNear = 50.0f;   // "occlnear=" in vita.cfg, metres: closer than this is always drawn, a late pop would show
 static unsigned s_occlQueries = 0, s_occlFoundHidden = 0, s_occlSkipped = 0, s_occlFrames = 0;
 static float s_planeInside[4] = { 1.0f, 1.0f, 1.0f, 1.0f };     // which side of each plane is inside
 static unsigned s_cullInCone = 0, s_cullOutOfFrame = 0, s_cullBeyondDrawDist = 0, s_cullFrames = 0;
@@ -1895,7 +1895,8 @@ BEGIN_PROFILE("qsort display")
 #ifdef RAD_VITA
         // Hardware visibility queries. Without waiting, the result of an earlier frame says that
         // none of an object's pixels survived the depth test. Such an object can be left out, and
-        // is drawn again on every 4th frame so that its query can say when it comes into view.
+        // is drawn again as soon as the last answer is in (on an even frame of its own), so that it
+        // shows at most a few frames late when it comes into view.
         // The queries see what was drawn before the object, so they only ever find too much.
         if( occl != NULL )
         {
@@ -1924,13 +1925,13 @@ BEGIN_PROFILE("qsort display")
                 }
             }
             const unsigned phase = occlFrame + ( (unsigned)(size_t)e >> 4 );
-            if( e->mOcclHidden >= 2 && ( phase & 3 ) != 0 )
+            if( e->mOcclHidden >= 3 && ( e->mOcclQueryFrame != 0 || ( phase & 1 ) != 0 ) )
             {
                 rmt::Sphere sphere;
                 e->GetBoundingSphere( &sphere );
                 rmt::Vector toCamera;
                 toCamera.Sub( mViewPosn, sphere.centre );
-                const float near = sphere.radius + VITA_OCCL_NEAR_METRES;
+                const float near = sphere.radius + g_vitaOcclNear;
                 if( toCamera.MagnitudeSqr() > near * near )
                 {
                     ++s_occlSkipped;

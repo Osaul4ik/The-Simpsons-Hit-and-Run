@@ -4581,6 +4581,20 @@ sim::Solving_Answer Vehicle::PostReactToCollision(rmt::Vector& impulse, sim::Col
         
     if(simStateA->mAIRefIndex == PhysicsAIRef::redBrickVehicle && simStateB->mAIRefIndex == PhysicsAIRef::redBrickVehicle)
     {
+#ifdef RAD_VITA
+        // Giving up on a hit this hard solved nothing, so the two cars drove through each other.
+        // They now get the strongest push the test allows, and again on the next frames while
+        // they still run into each other.
+        const bool softPair = ( ((Vehicle*)(simStateA->mAIRefPointer))->mVehicleID == VehicleEnum::BART_V && ((Vehicle*)(simStateB->mAIRefPointer))->mVehicleID == VehicleEnum::CKLIMO ) ||
+                              ( ((Vehicle*)(simStateA->mAIRefPointer))->mVehicleID == VehicleEnum::CKLIMO && ((Vehicle*)(simStateB->mAIRefPointer))->mVehicleID == VehicleEnum::BART_V );
+        const float strongest = softPair ? 0.5f : 0.8f;
+        if(normalizedMagnitude > strongest)
+        {
+            impulse.Scale(strongest / normalizedMagnitude);
+            impulseMagnitude *= strongest / normalizedMagnitude;
+            normalizedMagnitude = strongest;
+        }
+#else
         // stricter test
         if(normalizedMagnitude > 0.8f)
         {
@@ -4594,7 +4608,8 @@ sim::Solving_Answer Vehicle::PostReactToCollision(rmt::Vector& impulse, sim::Col
             {
                 return sim::Solving_Aborted;
             }                 
-        }        
+        }
+#endif
     }
 
     if(normalizedMagnitude > 1.0f)

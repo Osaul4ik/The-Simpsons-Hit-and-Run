@@ -99,13 +99,14 @@ static void ProcessCommandLineArgumentsFromFile();
 //     vsync=0           1 = wait for the screen, then fps= sets the frame rate. Off, the picture can
 //                       tear and game time follows the clock
 //     fpscap=42         frames per second at most with vsync off; 0 = no limit
-//     pixcull=4         solid things with a smaller radius on screen, in pixels, are not drawn; 0 = all
+//     pixcull=2         solid things with a smaller radius on screen, in pixels, are not drawn; 0 = all
 //     occlsort=1        0 = solid things are sorted by material alone, not near ones first
+//     occlnear=50       metres within which hidden objects are still drawn, so that they cannot appear late
 //     occlusion=1       0 = no hardware visibility queries: objects hidden behind others are drawn too
 //     framecull=1       0 = things above and below the picture are drawn too, as in the original
 //     skylineall=0      1 = the big landmarks of zones asleep in memory are drawn too, for more
 //                       draw calls
-//     npcfar=1          0 = pedestrians past 25 m run their actions every frame, not every 4th
+//     npcfar=1          0 = pedestrians past 38 m run their actions every frame, not every 4th
 //     pedlimit=7        most pedestrians at once, 0 to 7; fewer costs less and shows fewer people
 //     trilinear=1       0 = nearest mip level instead of blending between levels
 //     fastshaders=1     0 = only the packaged shaders, no runtime compiled variants
@@ -130,6 +131,7 @@ extern int g_gxmVsync;                                         // libs/pure3d/pd
 extern int g_gxmFpsCap;                                        // libs/pure3d/pddi/gxm/display.cpp
 extern int g_vitaPixCull;                                      // code/render/Culling/WorldScene.cpp
 extern bool g_vitaOcclSort;                                    // code/render/Culling/WorldScene.cpp
+extern float g_vitaOcclNear;                                   // code/render/Culling/WorldScene.cpp
 extern bool g_vitaOcclusion;                                   // code/render/Culling/WorldScene.cpp
 extern bool g_vitaFrameCull;                                   // code/render/Culling/WorldScene.cpp
 extern bool g_vitaSkylineAll;                                  // code/render/RenderManager/WorldRenderLayer.cpp
@@ -144,6 +146,7 @@ int g_vitaSmoothLoad        = 1;                               // read by Game::
 extern int g_vitaSoundWorker;                                  // code/sound/soundmanager.cpp
 static int s_vitaProf       = 0;
 int g_gxmTrilinear          = 1;                               // read by gxmMat::SetDevPass
+extern int g_gxmLodBiasEighths;                                // libs/pure3d/pddi/gxm/texture.cpp
 int g_gxmFastShaders        = 1;                               // read by gxmContext::LoadShaderVariants
 int g_gxmHardwareSkinning   = 1;                               // read by gxmContext::LoadShaderVariants
 
@@ -230,6 +233,10 @@ static void LoadVitaConfig()
         {
             g_vitaOcclSort = v != 0;
         }
+        else if( sscanf( line, "occlnear=%d", &v ) == 1 )
+        {
+            g_vitaOcclNear = (float)( v > 0 ? v : 0 );
+        }
         else if( sscanf( line, "occlusion=%d", &v ) == 1 )
         {
             g_vitaOcclusion = v != 0;
@@ -257,6 +264,10 @@ static void LoadVitaConfig()
         else if( sscanf( line, "trilinear=%d", &v ) == 1 )
         {
             g_gxmTrilinear = v != 0;
+        }
+        else if( sscanf( line, "lodbias=%d", &v ) == 1 )
+        {
+            g_gxmLodBiasEighths = v < -31 ? -31 : ( v > 32 ? 32 : v );
         }
         else if( sscanf( line, "fastshaders=%d", &v ) == 1 )
         {
