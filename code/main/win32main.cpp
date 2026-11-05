@@ -96,6 +96,7 @@ static void ProcessCommandLineArgumentsFromFile();
 //     smokebudget=25    how many whole screens the particles of a frame may cover, in tenths;
 //                       lower = smoke costs less and thins out sooner, 0 = no limit and no
 //                       fading near the camera
+//     framecull=1       0 = things above and below the picture are drawn too, as in the original
 //     skylineall=0      1 = the big landmarks of zones asleep in memory are drawn too, for more
 //                       draw calls
 //     npcfar=1          0 = pedestrians past 25 m run their actions every frame, not every 4th
@@ -119,6 +120,7 @@ int g_gxmFrameRate          = RAD_VITA_FRAME_RATE;             // read by gxmDis
 #ifdef RAD_LOG
 extern int g_vitaProfEnabled;                                  // code/debug/vitaprof.cpp
 #endif
+extern bool g_vitaFrameCull;                                   // code/render/Culling/WorldScene.cpp
 extern bool g_vitaSkylineAll;                                  // code/render/RenderManager/WorldRenderLayer.cpp
 extern bool g_vitaNpcFarCadence;                               // code/worldsim/character/character.cpp
 extern int g_vitaPedLimit;                                     // code/worldsim/ped/pedestrianmanager.cpp
@@ -200,6 +202,10 @@ static void LoadVitaConfig()
         else if( sscanf( line, "smokebudget=%d", &v ) == 1 )
         {
             g_vitaParticleBudget = (float)v * 0.1f;
+        }
+        else if( sscanf( line, "framecull=%d", &v ) == 1 )
+        {
+            g_vitaFrameCull = v != 0;
         }
         else if( sscanf( line, "skylineall=%d", &v ) == 1 )
         {

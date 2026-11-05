@@ -300,6 +300,12 @@ static void VitaPlaceFailed( const char* kind )
     }
 }
 float g_vitaCullMargin = 4.0f;          // "cullmargin=" in vita.cfg, metres
+
+// The cone below is as wide as the screen and just as high, so a 16:9 view draws a lot above and
+// below the picture. "framecull=0" in vita.cfg leaves it at the cone.
+bool g_vitaFrameCull = true;
+static float s_planeInside[4] = { 1.0f, 1.0f, 1.0f, 1.0f };     // which side of each plane is inside
+static unsigned s_cullInCone = 0, s_cullOutOfFrame = 0, s_cullBeyondDrawDist = 0, s_cullFrames = 0;
 #endif
 
 bool WorldScene::IsSphereInCone( rmt::Vector& irCenter, float iRadius )
@@ -350,9 +356,40 @@ bool WorldScene::IsSphereInCone( rmt::Vector& irCenter, float iRadius )
         e = -1.0f*mViewVector.Dot(bigD);
 
         if(e>0.0f && e*e > Dsqr*mViewSinSqr)
-            return Dsqr <= iRadius*iRadius;
-        else
-            return true;
+        {
+            if( Dsqr > iRadius*iRadius )
+            {
+                return false;
+            }
+        }
+#ifdef RAD_VITA
+        // The side planes already have the margin in them, so the radius without it is tested.
+        const float realRadius = iRadius - g_vitaCullMargin;
+        ++s_cullInCone;
+        for( int side = 0; side < 4; side++ )
+        {
+            const rmt::Vector4& plane = mCamPlanes[ side ];
+            const float at = ( plane.x * irCenter.x + plane.y * irCenter.y + plane.z * irCenter.z + plane.w ) * s_planeInside[ side ];
+            if( at < -realRadius )
+            {
+                ++s_cullOutOfFrame;
+                if( g_vitaFrameCull )
+                {
+                    return false;
+                }
+                break;
+            }
+        }
+        {
+            // Only counted for now: how much is drawn past the draw distance.
+            const rmt::Vector4& plane = mCamPlanes[ 4 ];
+            if( plane.x * irCenter.x + plane.y * irCenter.y + plane.z * irCenter.z + plane.w > realRadius )
+            {
+                ++s_cullBeyondDrawDist;
+            }
+        }
+#endif
+        return true;
     }
     return false;
 
@@ -2515,6 +2552,13 @@ void WorldScene::MarkCameraVisible( tPointCamera* pCam, unsigned int iFilter )
          rmt::Vector4& plane = mCamPlanes[ side ];
          const float at = plane.x * ahead.x + plane.y * ahead.y + plane.z * ahead.z + plane.w;
          plane.w += at >= 0.0f ? g_vitaCullMargin : -g_vitaCullMargin;
+         s_planeInside[ side ] = at >= 0.0f ? 1.0f : -1.0f;
+      }
+      if( ++s_cullFrames >= 600 )
+      {
+         rReleasePrintf( "[cull] per frame: %u things in the cone, %u of them out of the picture, %u past the draw distance (%.0f m), framecull=%d\n",
+                         s_cullInCone / s_cullFrames, s_cullOutOfFrame / s_cullFrames, s_cullBeyondDrawDist / s_cullFrames, mDrawDist, g_vitaFrameCull ? 1 : 0 );
+         s_cullInCone = s_cullOutOfFrame = s_cullBeyondDrawDist = s_cullFrames = 0;
       }
    }
 #endif
