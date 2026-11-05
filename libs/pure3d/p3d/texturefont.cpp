@@ -169,6 +169,16 @@ tTextureFont::GetLineWidth(const P3D_UNICODE* text) const
     return width;
 }
 
+#if defined( RAD_VITA ) && defined( RAD_LOG )
+extern "C" void vitaProfBegin( const char* name );
+extern "C" void vitaProfEnd( const char* name );
+#define P3D_VITA_PROF_BEGIN( name ) vitaProfBegin( name )
+#define P3D_VITA_PROF_END( name )   vitaProfEnd( name )
+#else
+#define P3D_VITA_PROF_BEGIN( name )
+#define P3D_VITA_PROF_END( name )
+#endif
+
 void 
 tTextureFont::DisplayLine(const P3D_UNICODE* text, int formatting) const
 {
@@ -177,6 +187,7 @@ tTextureFont::DisplayLine(const P3D_UNICODE* text, int formatting) const
         return;
     }
 
+    P3D_VITA_PROF_BEGIN( "HUD text line" );
     unsigned int currChar = 0;
     int currGlyph = 0; 
     float x = 0.0f;
@@ -254,6 +265,7 @@ tTextureFont::DisplayLine(const P3D_UNICODE* text, int formatting) const
     p3d::pddi->EndPrims(stream);
 
     p3d::stack->Pop();
+    P3D_VITA_PROF_END( "HUD text line" );
 }
 
 int 

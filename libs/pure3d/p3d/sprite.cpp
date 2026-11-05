@@ -598,8 +598,19 @@ void tSprite::SetColour(tColour c)
     }
 }
 
+#if defined( RAD_VITA ) && defined( RAD_LOG )
+extern "C" void vitaProfBegin( const char* name );
+extern "C" void vitaProfEnd( const char* name );
+#define P3D_VITA_PROF_BEGIN( name ) vitaProfBegin( name )
+#define P3D_VITA_PROF_END( name )   vitaProfEnd( name )
+#else
+#define P3D_VITA_PROF_BEGIN( name )
+#define P3D_VITA_PROF_END( name )
+#endif
+
 void tSprite::Display()
 {
+    P3D_VITA_PROF_BEGIN( "HUD sprite" );
     for(int i = 0; i < nPolys; i++)
     {
 //      if(tDrawable2D::RectClip(scratch,uv,colours))
@@ -616,6 +627,7 @@ void tSprite::Display()
 
         }
     }
+    P3D_VITA_PROF_END( "HUD sprite" );
 }
 
 tSpriteLoader::tSpriteLoader() : tSimpleChunkHandler(Pure3D::Texture::SPRITE)//P3D_SPRITE)

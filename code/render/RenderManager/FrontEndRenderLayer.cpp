@@ -134,8 +134,10 @@ void FrontEndRenderLayer::Render()
 
         HeapMgr()->PushHeap( GMA_TEMP );
 
+        BEGIN_PROFILE( "FE coins" );
         if (!GetCoinManager()->DrawAfterGui())
             DrawCoinObject();
+        END_PROFILE( "FE coins" );
         // display Scrooby screen (and updates all Pure3d objects)
         //
         mpScroobyApp->DrawFrame( static_cast<float>( g_scroobySimulationTime ) );
@@ -144,8 +146,10 @@ void FrontEndRenderLayer::Render()
         GetInputManager()->GetFEMouse()->Update();
 #endif
 
+        BEGIN_PROFILE( "FE coins" );
         if (GetCoinManager()->DrawAfterGui())
             DrawCoinObject();
+        END_PROFILE( "FE coins" );
 
         HeapMgr()->PopHeap ( GMA_TEMP );
 
