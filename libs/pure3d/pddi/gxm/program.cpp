@@ -143,34 +143,6 @@ gxmProgram::~gxmProgram()
     radMemoryFree(program);
 }
 
-// The inverse transpose of the rotation and scale part, up to a factor: the shader normalizes the
-// result and only reads these three rows. So no division and no full 4x4 inverse for every object.
-// The cofactors keep the direction for any scale; the sign of the determinant keeps it for a mirror.
-static void ComputeNormalMatrix(const pddiMatrix& m, pddiMatrix& n)
-{
-    const float a0 = m.m[0][0], a1 = m.m[0][1], a2 = m.m[0][2];
-    const float b0 = m.m[1][0], b1 = m.m[1][1], b2 = m.m[1][2];
-    const float c0 = m.m[2][0], c1 = m.m[2][1], c2 = m.m[2][2];
-    const float n00 = b1 * c2 - b2 * c1, n01 = b2 * c0 - b0 * c2, n02 = b0 * c1 - b1 * c0;
-    const float sign = (a0 * n00 + a1 * n01 + a2 * n02) < 0.0f ? -1.0f : 1.0f;
-    n.m[0][0] = sign * n00;
-    n.m[0][1] = sign * n01;
-    n.m[0][2] = sign * n02;
-    n.m[0][3] = 0.0f;
-    n.m[1][0] = sign * (c1 * a2 - c2 * a1);
-    n.m[1][1] = sign * (c2 * a0 - c0 * a2);
-    n.m[1][2] = sign * (c0 * a1 - c1 * a0);
-    n.m[1][3] = 0.0f;
-    n.m[2][0] = sign * (a1 * b2 - a2 * b1);
-    n.m[2][1] = sign * (a2 * b0 - a0 * b2);
-    n.m[2][2] = sign * (a0 * b1 - a1 * b0);
-    n.m[2][3] = 0.0f;
-    n.m[3][0] = 0.0f;
-    n.m[3][1] = 0.0f;
-    n.m[3][2] = 0.0f;
-    n.m[3][3] = 1.0f;
-}
-
 void gxmProgram::SetProjectionMatrix(void* buffer, const pddiMatrix* matrix)
 {
     UniformFloats(buffer, projection, projectionOffset, 16, matrix->m[0]);
@@ -193,7 +165,8 @@ void gxmProgram::SetModelViewMatrix(void* buffer, const pddiMatrix* matrix, bool
         if(!cacheValid || memcmp(&cachedSource, matrix, sizeof(pddiMatrix)) != 0)
         {
             cachedSource = *matrix;
-            ComputeNormalMatrix(*matrix, cachedNormal);
+            cachedNormal.Invert(*matrix);
+            cachedNormal.Transpose();
             cacheValid = true;
         }
         UniformFloats(buffer, normalmatrix, normalmatrixOffset, 16, cachedNormal.m[0]);

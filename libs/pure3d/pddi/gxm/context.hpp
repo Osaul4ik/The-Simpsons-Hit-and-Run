@@ -235,15 +235,6 @@ protected:
     unsigned fragmentSets, fragmentSkips, textureSets, textureSkips;   // statistics
     SceGxmTexture boundTexture0;                // a copy: same bytes, same texture and sampler
     bool boundTexture0Valid;
-    int lastCullMode;                           // the same for the cull mode
-    void ApplyCullMode(SceGxmCullMode mode)
-    {
-        if(lastCullMode != (int)mode)
-        {
-            lastCullMode = (int)mode;
-            sceGxmSetCullMode(context, mode);
-        }
-    }
     void InvalidateUniformShadow() { uniformShadow.valid = false; }
 
     SceUID patcherVertexUsseUid;
