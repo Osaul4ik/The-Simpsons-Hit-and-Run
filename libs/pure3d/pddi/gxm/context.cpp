@@ -150,6 +150,7 @@ gxmContext::gxmContext(gxmDevice* dev, gxmDisplay* disp) : pddiBaseContext((pddi
     uniformUploads = uniformReuses = 0;
     fragmentSets = fragmentSkips = textureSets = textureSkips = 0;
     boundTexture0Valid = false;
+    lastCullMode = -1;
     // DefaultState() below syncs the scissor and stencil state, which look at these
     inScene = false;
     for(int i = 0; i < PDDI_MAX_LIGHTS; i++)
@@ -333,6 +334,7 @@ void gxmContext::BeginFrame()
     InvalidateUniformShadow();          // the uniform ring starts over with every scene
     g_gxmBoundFragment = NULL;          // nothing is assumed to survive a new scene
     boundTexture0Valid = false;
+    lastCullMode = -1;
 
     if(display->HasReset())
     {
@@ -1220,13 +1222,13 @@ SceGxmCullMode cullModeTable[3] =
 // shadow volume passes select with SetCullMode() was overridden by every material change.
 void gxmContext::EnableCulling(bool enable)
 {
-    sceGxmSetCullMode(context, enable ? cullModeTable[state.renderState->cullMode] : SCE_GXM_CULL_NONE);
+    ApplyCullMode(enable ? cullModeTable[state.renderState->cullMode] : SCE_GXM_CULL_NONE);
 }
 
 void gxmContext::SetCullMode(pddiCullMode mode)
 {
     pddiBaseContext::SetCullMode(mode);
-    sceGxmSetCullMode(context, cullModeTable[mode]);
+    ApplyCullMode(cullModeTable[mode]);
 }
 
 // z-buffer control
