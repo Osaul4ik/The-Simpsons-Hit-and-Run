@@ -103,7 +103,7 @@ static void ProcessCommandLineArgumentsFromFile();
 //     framecull=1       0 = things above and below the picture are drawn too, as in the original
 //     skylineall=0      1 = the big landmarks of zones asleep in memory are drawn too, for more
 //                       draw calls
-//     npcfar=1          0 = pedestrians past 25 m run their actions every frame, not every 4th
+//     npcfar=1          0 = pedestrians past 37.5 m run their actions every frame, not every 4th
 //     pedlimit=7        most pedestrians at once, 0 to 7; fewer costs less and shows fewer people
 //     trilinear=1       0 = nearest mip level instead of blending between levels
 //     fastshaders=1     0 = only the packaged shaders, no runtime compiled variants
