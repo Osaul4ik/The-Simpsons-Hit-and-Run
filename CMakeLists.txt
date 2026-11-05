@@ -55,14 +55,12 @@ if(VITA)
 	set(VITA_VERSION ${SRR2_VERSION})
 	# Size of the newlib heap (backing malloc/new) in MB, see code/main/win32main.cpp
 	# Memory budget of the 368 MB (GXM backend), measured from the boot log:
-	#   newlib heap (SRR2_VITA_HEAP_MB)          128 MB   malloc/new, game heaps
-	#   sceLibc heap + executable + stacks      ~17 MB
-	#   foundation init (audio, file cache...)  ~37 MB
+	#   newlib heap (SRR2_VITA_HEAP_MB)          252 MB   malloc/new, game heaps, audio, file cache
 	#   radMemorySpace user block (below)        80 MB   GPU-readable: vertex data, GXM rings, texture overflow
-	#   -> ~40 MB left as headroom
+	#   sceLibc heap, executable, stacks, system ~25 MB
+	#   -> ~11 MB left for threads and modules started later, about 3 MB of it is used in play
 	# The 128 MB of CDRAM is taken at runtime: all of it except 8 MB for GXM (radmemory).
-	# Measured peak of newlib "used" in a full session (levels 1 and 5): ~44 MB, so 128 MB is ~3x headroom.
-	set(SRR2_VITA_HEAP_MB 128 CACHE STRING "Vita newlib heap size in MB")
+	set(SRR2_VITA_HEAP_MB 252 CACHE STRING "Vita newlib heap size in MB")
 	add_definitions(-DRAD_VITA_HEAP_MB=${SRR2_VITA_HEAP_MB})
 	set(SRR2_VITA_GXM_USER_MB 80 CACHE STRING "GXM backend: GPU-readable user RAM block in MB")
 	add_definitions(-DRAD_VITA_GXM_USER_MB=${SRR2_VITA_GXM_USER_MB})

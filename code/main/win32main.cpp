@@ -44,7 +44,7 @@ unsigned int sceLibcHeapSize = 16 * 1024 * 1024;
 // there or the screen stays black. The GXM backend does not do that: its memory is
 // the radMemorySpace user and CDRAM blocks (libs/radcore/.../memoryspacewin32.cpp).
 #ifndef RAD_VITA_HEAP_MB
-#define RAD_VITA_HEAP_MB 128
+#define RAD_VITA_HEAP_MB 252
 #endif
 unsigned int _newlib_heap_size_user = RAD_VITA_HEAP_MB * 1024 * 1024;
 #endif
