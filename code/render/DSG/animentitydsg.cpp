@@ -14,6 +14,8 @@
 // Includes
 //===========================================================================
 
+#include <typeinfo>
+#include <debug/profiler.h>
 #include <render/DSG/animentitydsg.h>
 #include <p3d/anim/compositedrawable.hpp>
 #include <p3d/anim/animate.hpp>
@@ -149,7 +151,15 @@ void AnimEntityDSG::Display()
 	if ( mIsVisible )
 	{
         p3d::pddi->PushMultMatrix(PDDI_MATRIX_MODELVIEW, &mTransformOffset);
+#if defined( RAD_VITA ) && defined( RAD_LOG )
+        // Which kind of drawable makes these so dear: a few of them take over a millisecond.
+        const char* const vitaDrawableMark = typeid( *mpDrawable ).name();
+        vitaProfBegin( vitaDrawableMark );
+#endif
         mpDrawable->Display();
+#if defined( RAD_VITA ) && defined( RAD_LOG )
+        vitaProfEnd( vitaDrawableMark );
+#endif
         p3d::pddi->PopMatrix(PDDI_MATRIX_MODELVIEW);
 	}
 

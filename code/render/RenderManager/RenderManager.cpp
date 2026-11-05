@@ -676,7 +676,21 @@ bool RenderManager::ZoneCacheDefer( const char* name )
     }
 
     ZoneCachePurgeStale();
-    ZoneCacheRemove( name );   // already cached: re-add as the newest
+
+    // Already asleep in the cache: only its age changes. Taking it out would wake it and putting it
+    // back would ask the heaps how full they are, for every such zone of every zone event.
+    for( int c = 0; c < mNumZoneCache; c++ )
+    {
+        if( strcmp( mZoneCache[c], name ) == 0 )
+        {
+            for( ; c < mNumZoneCache - 1; c++ )
+            {
+                strcpy( mZoneCache[c], mZoneCache[c + 1] );
+            }
+            strcpy( mZoneCache[mNumZoneCache - 1], name );
+            return true;
+        }
+    }
 
     // Make room: over the cap, or low on memory.
     while( mNumZoneCache > 0 &&
