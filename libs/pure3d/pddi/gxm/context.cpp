@@ -29,6 +29,8 @@ void LogProgress( const char* stage ) __attribute__((weak));
 #include <p3d/vitajobs.hpp>
 #include <pddi/pddiext.hpp>
 
+SceGxmFragmentProgram* g_gxmBoundFragment = NULL;   // also cleared by gxmProgram when it lets one go
+
 int g_gxmFadeAlpha = 255;    // what is being drawn now fades in, see WorldScene::RenderTranslucent
 
 // Time in the draw calls in the log (code/debug/vitaprof.cpp). This is the part of rendering a
@@ -146,6 +148,8 @@ gxmContext::gxmContext(gxmDevice* dev, gxmDisplay* disp) : pddiBaseContext((pddi
     vertexShader = nullptr;
     uniformShadow.valid = false;
     uniformUploads = uniformReuses = 0;
+    fragmentSets = fragmentSkips = textureSets = textureSkips = 0;
+    boundTexture0Valid = false;
     // DefaultState() below syncs the scissor and stencil state, which look at these
     inScene = false;
     for(int i = 0; i < PDDI_MAX_LIGHTS; i++)
@@ -303,9 +307,10 @@ void gxmContext::BeginFrame()
 #ifdef RAD_LOG
     if(++statFrames >= 3600)
     {
-        rReleasePrintf("[gxm] last %u frames: primPool hits=%u misses=%u (pooled %u KB), mid-scene flushes=%u, vertex uniform uploads=%u reuses=%u\n",
-                       statFrames, primPoolHits, primPoolMisses, primPoolBytes / 1024, midSceneFlushes, uniformUploads, uniformReuses);
+        rReleasePrintf("[gxm] last %u frames: primPool hits=%u misses=%u (pooled %u KB), mid-scene flushes=%u, vertex uniform uploads=%u reuses=%u, fragment program sets=%u skips=%u, texture sets=%u skips=%u\n",
+                       statFrames, primPoolHits, primPoolMisses, primPoolBytes / 1024, midSceneFlushes, uniformUploads, uniformReuses, fragmentSets, fragmentSkips, textureSets, textureSkips);
         statFrames = primPoolHits = primPoolMisses = midSceneFlushes = uniformUploads = uniformReuses = 0;
+        fragmentSets = fragmentSkips = textureSets = textureSkips = 0;
         if( LogProgress != NULL )
         {
             LogProgress( "periodic (3600 frames)" );
@@ -326,6 +331,8 @@ void gxmContext::BeginFrame()
     inScene = true;
     lastPolygonMode = -1;
     InvalidateUniformShadow();          // the uniform ring starts over with every scene
+    g_gxmBoundFragment = NULL;          // nothing is assumed to survive a new scene
+    boundTexture0Valid = false;
 
     if(display->HasReset())
     {
@@ -1452,6 +1459,33 @@ float gxmContext::EndTiming(void)
     return display->EndTiming();
 }
 
+void gxmContext::SetFragmentShader(SceGxmFragmentProgram* frag)
+{
+    if(frag != g_gxmBoundFragment)
+    {
+        g_gxmBoundFragment = frag;
+        ++fragmentSets;
+        sceGxmSetFragmentProgram(context, frag);
+    }
+    else
+    {
+        ++fragmentSkips;
+    }
+}
+
+void gxmContext::SetFragmentTexture0(const SceGxmTexture* texture)
+{
+    if(boundTexture0Valid && memcmp(&boundTexture0, texture, sizeof(SceGxmTexture)) == 0)
+    {
+        ++textureSkips;
+        return;
+    }
+    boundTexture0 = *texture;
+    boundTexture0Valid = true;
+    ++textureSets;
+    CHK_GXM(sceGxmSetFragmentTexture(context, 0, texture));
+}
+
 void gxmContext::SetVertexShader(SceGxmVertexProgram* vert)
 {
     if(vert != vertexShader)
@@ -1555,6 +1589,8 @@ void gxmContext::MidSceneFlushAndWait()
 {
     ++midSceneFlushes;
     InvalidateUniformShadow();
+    g_gxmBoundFragment = NULL;
+    boundTexture0Valid = false;
     CHK_GXM(sceGxmMidSceneFlush(context, 0, NULL, &streamsHead));
     CHK_GXM(sceGxmNotificationWait(&streamsHead));
     FlushVertexStreams();

@@ -137,6 +137,11 @@ protected:
     float EndTiming(void);
 
     void SetVertexShader(SceGxmVertexProgram* vert);
+public:
+    // Fragment program and texture 0, written only when they differ from what is bound.
+    void SetFragmentShader(SceGxmFragmentProgram* frag);
+    void SetFragmentTexture0(const SceGxmTexture* texture);
+protected:
     void FlushVertexStreams();
 
     // Programs the hardware region clip from the current scissor rect. Only valid inside a
@@ -213,6 +218,9 @@ protected:
         pddiColour lightColour[PDDI_MAX_LIGHTS];
     } uniformShadow;
     unsigned uniformUploads, uniformReuses;     // statistics
+    unsigned fragmentSets, fragmentSkips, textureSets, textureSkips;   // statistics
+    SceGxmTexture boundTexture0;                // a copy: same bytes, same texture and sampler
+    bool boundTexture0Valid;
     void InvalidateUniformShadow() { uniformShadow.valid = false; }
 
     SceUID patcherVertexUsseUid;

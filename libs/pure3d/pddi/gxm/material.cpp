@@ -356,7 +356,6 @@ void gxmMat::SelectProgram()
 void gxmMat::SetDevPass(unsigned pass)
 {
     int i = 0;
-    SceGxmContext* gxm = context->GetDisplay()->GetGXMContext();
     const int contextWriteMask = context->GetColourWriteMask();
 
     if(!valid || appliedNoSpecular != (context->GetVertexVariant(&texEnv[i]) != gxmContext::VARIANT_FULL))
@@ -368,7 +367,7 @@ void gxmMat::SetDevPass(unsigned pass)
         SelectFragmentShader(contextWriteMask);
     }
 
-    sceGxmSetFragmentProgram(gxm, shader);
+    context->SetFragmentShader(shader);
 
     if(texEnv[i].texture)
     {
@@ -385,7 +384,7 @@ void gxmMat::SetDevPass(unsigned pass)
                                              uvTable[texEnv[i].uvMode], uvTable[texEnv[i].uvMode],
                                              storedMips > 1 ? (fm == PDDI_FILTER_NONE ? 1 : storedMips) : 0,
                                              blendLevels ? SCE_GXM_TEXTURE_MIP_FILTER_ENABLED : SCE_GXM_TEXTURE_MIP_FILTER_DISABLED);
-        CHK_GXM(sceGxmSetFragmentTexture(gxm, 0, texture));
+        context->SetFragmentTexture0(texture);
     }
 
     context->EnableCulling(!texEnv[i].twoSided);
@@ -404,12 +403,12 @@ void gxmMat::PreRender()
         if(appliedNoSpecular != (context->GetVertexVariant(&texEnv[i]) != gxmContext::VARIANT_FULL))
         {
             SelectProgram();
-            sceGxmSetFragmentProgram(context->GetDisplay()->GetGXMContext(), shader);
+            context->SetFragmentShader(shader);
         }
         else if(contextWriteMask != appliedContextWriteMask || appliedFadeBlend != (g_gxmFadeAlpha < 255))
         {
             SelectFragmentShader(contextWriteMask);
-            sceGxmSetFragmentProgram(context->GetDisplay()->GetGXMContext(), shader);
+            context->SetFragmentShader(shader);
         }
 
         context->SetTextureEnvironment(&texEnv[i], program);

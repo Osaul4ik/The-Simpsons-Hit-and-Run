@@ -5,6 +5,7 @@
 #include <string.h>
 #include <pddi/gxm/gxm.hpp>
 #include <pddi/gxm/program.hpp>
+extern SceGxmFragmentProgram* g_gxmBoundFragment;   // context.cpp
 #include <pddi/gxm/material.hpp>
 #include <p3d/file.hpp>
 #include <radmemory.hpp>
@@ -129,6 +130,8 @@ gxmProgram::~gxmProgram()
                 reinterpret_cast<SceGxmVertexProgram*>(shader.second));
             break;
         case SCE_GXM_FRAGMENT_PROGRAM:
+            if(g_gxmBoundFragment == reinterpret_cast<SceGxmFragmentProgram*>(shader.second))
+                g_gxmBoundFragment = NULL;
             sceGxmShaderPatcherReleaseFragmentProgram(shaderPatcher,
                 reinterpret_cast<SceGxmFragmentProgram*>(shader.second));
             break;
