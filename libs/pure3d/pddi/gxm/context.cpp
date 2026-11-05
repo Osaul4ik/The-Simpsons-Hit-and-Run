@@ -1470,7 +1470,7 @@ float gxmContext::EndTiming(void)
     return display->EndTiming();
 }
 
-extern IRadMemoryHeap* g_pIRadMemoryHeap_User;   // GPU mapped and not cached by the CPU
+extern IRadMemoryHeap* g_pIRadMemoryHeap_Cdram;  // the GPU writes the results: the user heap is read only for it
 
 void gxmContext::OcclInit()
 {
@@ -1480,9 +1480,9 @@ void gxmContext::OcclInit()
     occlDone = sceGxmGetNotificationRegion() + 1;   // the first one is streamsHead
     *occlDone = 0;
     void* memory = NULL;
-    if(g_pIRadMemoryHeap_User != NULL)
+    if(g_pIRadMemoryHeap_Cdram != NULL)
     {
-        memory = g_pIRadMemoryHeap_User->GetMemoryAligned(OCCL_RING * OCCL_QUERIES * OCCL_CORES * sizeof(unsigned), 4096);
+        memory = g_pIRadMemoryHeap_Cdram->GetMemoryAligned(OCCL_RING * OCCL_QUERIES * OCCL_CORES * sizeof(unsigned), 4096);
     }
     occlBuffer = (unsigned*)memory;
     rReleasePrintf("[occl] visibility buffers: %s\n", occlBuffer != NULL ? "ok" : "no memory");
