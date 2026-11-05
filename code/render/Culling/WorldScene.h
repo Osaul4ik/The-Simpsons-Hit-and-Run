@@ -185,6 +185,9 @@ protected:
 
     void SetVisCone( rmt::Vector& irView, rmt::Vector& irPosn, float iAngleRadians );
     bool IsSphereInCone( rmt::Vector& irCenter, float iRadius );
+#ifdef RAD_VITA
+    bool VitaInFrame( const rmt::Vector& irCenter, float iRadius );
+#endif
     rmt::Vector mViewVector, mViewPosn;
     float mViewSinInv, mViewSinSqr, mViewCosSqr;
    ////////////////////////////////////////////////////////////

@@ -1614,20 +1614,6 @@ int WorldRenderLayer::SetDynaZoneActive(tName& irGiveItAFuckinName, bool active)
       list->mSuspended = !active;
 
 #ifdef RAD_VITA
-      {
-         // Which zones are drawn after every change, to see it when part of the map goes missing.
-         char awake[ 256 ];
-         int used = 0;
-         awake[ 0 ] = 0;
-         for( int z = 0; z < mLoadLists.mUseSize && used < 200; z++ )
-         {
-            if( !mLoadLists[z]->mSuspended )
-            {
-               used += snprintf( awake + used, sizeof( awake ) - used, "%s ", mLoadLists[z]->mGiveItAFuckinName.GetText() );
-            }
-         }
-         rReleasePrintf( "[zones] %s %s, drawn now: %s\n", irGiveItAFuckinName.GetText(), active ? "wakes" : "sleeps", awake );
-      }
       // Zones in the zone cache are not drawn: a zone's tree walls and backdrops are made to be seen
       // only from around it, and stand in the view elsewhere. What is drawn is what would be drawn
       // if the sleeping zones were not loaded; skylineall=1 keeps their landmarks, see WorldScene::Place.

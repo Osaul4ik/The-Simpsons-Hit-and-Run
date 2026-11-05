@@ -328,6 +328,31 @@ static float s_planeInside[4] = { 1.0f, 1.0f, 1.0f, 1.0f };     // which side of
 static unsigned s_cullInCone = 0, s_cullOutOfFrame = 0, s_cullBeyondDrawDist = 0, s_cullFrames = 0;
 #endif
 
+#ifdef RAD_VITA
+// Only asked for solid objects: a particle system says it has a radius of 1 m, whatever it covers.
+// The side planes already have the margin in them.
+bool WorldScene::VitaInFrame( const rmt::Vector& irCenter, float iRadius )
+{
+    ++s_cullInCone;
+    const rmt::Vector4& farPlane = mCamPlanes[ 4 ];
+    if( farPlane.x * irCenter.x + farPlane.y * irCenter.y + farPlane.z * irCenter.z + farPlane.w > iRadius )
+    {
+        ++s_cullBeyondDrawDist;     // only counted for now
+    }
+    for( int side = 0; side < 4; side++ )
+    {
+        const rmt::Vector4& plane = mCamPlanes[ side ];
+        const float at = ( plane.x * irCenter.x + plane.y * irCenter.y + plane.z * irCenter.z + plane.w ) * s_planeInside[ side ];
+        if( at < -iRadius )
+        {
+            ++s_cullOutOfFrame;
+            return !g_vitaFrameCull;
+        }
+    }
+    return true;
+}
+#endif
+
 bool WorldScene::IsSphereInCone( rmt::Vector& irCenter, float iRadius )
 {
     if ( mRenderAll )
@@ -382,33 +407,6 @@ bool WorldScene::IsSphereInCone( rmt::Vector& irCenter, float iRadius )
                 return false;
             }
         }
-#ifdef RAD_VITA
-        // The side planes already have the margin in them, so the radius without it is tested.
-        const float realRadius = iRadius - g_vitaCullMargin;
-        ++s_cullInCone;
-        for( int side = 0; side < 4; side++ )
-        {
-            const rmt::Vector4& plane = mCamPlanes[ side ];
-            const float at = ( plane.x * irCenter.x + plane.y * irCenter.y + plane.z * irCenter.z + plane.w ) * s_planeInside[ side ];
-            if( at < -realRadius )
-            {
-                ++s_cullOutOfFrame;
-                if( g_vitaFrameCull )
-                {
-                    return false;
-                }
-                break;
-            }
-        }
-        {
-            // Only counted for now: how much is drawn past the draw distance.
-            const rmt::Vector4& plane = mCamPlanes[ 4 ];
-            if( plane.x * irCenter.x + plane.y * irCenter.y + plane.z * irCenter.z + plane.w > realRadius )
-            {
-                ++s_cullBeyondDrawDist;
-            }
-        }
-#endif
         return true;
     }
     return false;
@@ -1221,6 +1219,9 @@ BEGIN_PROFILE("list construction")
                     zSortBlah newBlah;
                     newBlah.entityPtr = mStaticTreeWalker.rCurrent().mSEntityElems[i];
                     newBlah.shaderUID = newBlah.entityPtr->GetShaderUID();
+#ifdef RAD_VITA
+                    if( VitaInFrame( ObjectSphere.centre, ObjectSphere.radius ) )
+#endif
                     mpZSorts.push_back( newBlah ); 
                     //mpZSorts[mpZSorts.mUseSize-1]->SetRank((rmt::Vector&)ipCam->GetPosition());
                     //mSort1.push_back(mStaticTreeWalker.rCurrent().mSEntityElems[i]);
@@ -1288,6 +1289,9 @@ BEGIN_PROFILE("list construction")
                     zSortBlah newBlah;
                     newBlah.entityPtr = mStaticTreeWalker.rCurrent().mAnimCollElems[i];
                     newBlah.shaderUID = newBlah.entityPtr->GetShaderUID();
+#ifdef RAD_VITA
+                    if( VitaInFrame( ObjectSphere.centre, ObjectSphere.radius ) )
+#endif
                     mpZSorts.push_back( newBlah );
                     //mpZSorts[mpZSorts.mUseSize-1]->SetRank(CamPosn);
                     //mSort1.push_back(mStaticTreeWalker.rCurrent().mAnimCollElems[i]);
@@ -1356,6 +1360,9 @@ BEGIN_PROFILE("list construction")
                     zSortBlah newBlah;
                     newBlah.entityPtr = mStaticTreeWalker.rCurrent().mAnimElems[i];
                     newBlah.shaderUID = newBlah.entityPtr->GetShaderUID();
+#ifdef RAD_VITA
+                    if( VitaInFrame( ObjectSphere.centre, ObjectSphere.radius ) )
+#endif
                     mpZSorts.push_back( newBlah );
                     //mpZSorts[mpZSorts.mUseSize-1]->SetRank(CamPosn);
                     //mSort1.push_back(mStaticTreeWalker.rCurrent().mAnimElems[i]);
@@ -1436,6 +1443,9 @@ BEGIN_PROFILE("list construction")
                     zSortBlah newBlah;
                     newBlah.entityPtr = mStaticTreeWalker.rCurrent().mDPhysElems[i];
                     newBlah.shaderUID = newBlah.entityPtr->GetShaderUID();
+#ifdef RAD_VITA
+                    if( VitaInFrame( ObjectSphere.centre, ObjectSphere.radius ) )
+#endif
                     mpZSorts.push_back( newBlah );
                     //mpZSorts[mpZSorts.mUseSize-1]->SetRank(CamPosn);
                     //mSort1.push_back(mStaticTreeWalker.rCurrent().mDPhysElems[i]);
@@ -1506,6 +1516,9 @@ BEGIN_PROFILE("list construction")
                     zSortBlah newBlah;
                     newBlah.entityPtr = mStaticTreeWalker.rCurrent().mSPhysElems[i];
                     newBlah.shaderUID = newBlah.entityPtr->GetShaderUID();
+#ifdef RAD_VITA
+                    if( VitaInFrame( ObjectSphere.centre, ObjectSphere.radius ) )
+#endif
                     mpZSorts.push_back( newBlah ); 
                     //mpZSorts[mpZSorts.mUseSize-1]->SetRank(CamPosn);
                     //mSort1.push_back(mStaticTreeWalker.rCurrent().mSPhysElems[i]);
@@ -2591,6 +2604,31 @@ void WorldScene::MarkCameraVisible( tPointCamera* pCam, unsigned int iFilter )
    ViewVector.Mult( mDrawDist / 2.0f );
    ViewVector.Add( CamPosn );
    ViewVolSP.SetTo( ViewVector, mDrawDist / 2.0f );
+#ifdef RAD_VITA
+   // The planes for IsSphereInCone. The code below that builds them for the tree is compiled out.
+   {
+      const float realFar = pCam->GetFarPlane();
+      pCam->SetFarPlane( mDrawDist );
+      BuildFrustumPlanes( pCam, mCamPlanes );
+      pCam->SetFarPlane( realFar );
+      const rmt::Matrix& camToWorld = pCam->GetCameraToWorldMatrix();
+      rmt::Vector ahead = camToWorld.Row( 3 );
+      ahead.ScaleAdd( 10.0f, camToWorld.Row( 2 ) );
+      for( int side = 0; side < 4; side++ )
+      {
+         rmt::Vector4& plane = mCamPlanes[ side ];
+         const float at = plane.x * ahead.x + plane.y * ahead.y + plane.z * ahead.z + plane.w;
+         plane.w += at >= 0.0f ? g_vitaCullMargin : -g_vitaCullMargin;
+         s_planeInside[ side ] = at >= 0.0f ? 1.0f : -1.0f;
+      }
+      if( ++s_cullFrames >= 600 )
+      {
+         rReleasePrintf( "[cull] per frame: %u solid things in the cone, %u of them out of the picture, %u past the draw distance (%.0f m), framecull=%d\n",
+                         s_cullInCone / s_cullFrames, s_cullOutOfFrame / s_cullFrames, s_cullBeyondDrawDist / s_cullFrames, mDrawDist, g_vitaFrameCull ? 1 : 0 );
+         s_cullInCone = s_cullOutOfFrame = s_cullBeyondDrawDist = s_cullFrames = 0;
+      }
+   }
+#endif
 
 
    //comment this out
@@ -2659,13 +2697,6 @@ void WorldScene::MarkCameraVisible( tPointCamera* pCam, unsigned int iFilter )
          rmt::Vector4& plane = mCamPlanes[ side ];
          const float at = plane.x * ahead.x + plane.y * ahead.y + plane.z * ahead.z + plane.w;
          plane.w += at >= 0.0f ? g_vitaCullMargin : -g_vitaCullMargin;
-         s_planeInside[ side ] = at >= 0.0f ? 1.0f : -1.0f;
-      }
-      if( ++s_cullFrames >= 600 )
-      {
-         rReleasePrintf( "[cull] per frame: %u things in the cone, %u of them out of the picture, %u past the draw distance (%.0f m), framecull=%d\n",
-                         s_cullInCone / s_cullFrames, s_cullOutOfFrame / s_cullFrames, s_cullBeyondDrawDist / s_cullFrames, mDrawDist, g_vitaFrameCull ? 1 : 0 );
-         s_cullInCone = s_cullOutOfFrame = s_cullBeyondDrawDist = s_cullFrames = 0;
       }
    }
 #endif

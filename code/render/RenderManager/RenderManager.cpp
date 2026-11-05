@@ -473,6 +473,18 @@ void RenderManager::ZoneCacheRemove( const char* name )
                 strcpy( mZoneCache[k], mZoneCache[k + 1] );
             }
             mNumZoneCache--;
+#ifdef RAD_VITA
+            {
+                char asleep[ 256 ];
+                int used = 0;
+                asleep[ 0 ] = 0;
+                for( int k = 0; k < mNumZoneCache && used < 200; k++ )
+                {
+                    used += snprintf( asleep + used, sizeof( asleep ) - used, "%s ", mZoneCache[k] );
+                }
+                rReleasePrintf( "[zones] %s wakes, asleep: %s\n", name, asleep );
+            }
+#endif
             return;
         }
     }
