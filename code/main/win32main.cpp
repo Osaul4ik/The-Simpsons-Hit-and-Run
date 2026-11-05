@@ -139,6 +139,7 @@ int g_vitaSmoothLoad        = 1;                               // read by Game::
 extern int g_vitaSoundWorker;                                  // code/sound/soundmanager.cpp
 static int s_vitaProf       = 0;
 int g_gxmTrilinear          = 1;                               // read by gxmMat::SetDevPass
+extern int g_gxmLodBiasEighths;                                // libs/pure3d/pddi/gxm/texture.cpp
 int g_gxmFastShaders        = 1;                               // read by gxmContext::LoadShaderVariants
 int g_gxmHardwareSkinning   = 1;                               // read by gxmContext::LoadShaderVariants
 
@@ -244,6 +245,10 @@ static void LoadVitaConfig()
         else if( sscanf( line, "trilinear=%d", &v ) == 1 )
         {
             g_gxmTrilinear = v != 0;
+        }
+        else if( sscanf( line, "lodbias=%d", &v ) == 1 )
+        {
+            g_gxmLodBiasEighths = v < -31 ? -31 : ( v > 32 ? 32 : v );
         }
         else if( sscanf( line, "fastshaders=%d", &v ) == 1 )
         {
