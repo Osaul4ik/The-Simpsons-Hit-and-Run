@@ -1018,7 +1018,7 @@ MEMTRACK_PUSH_GROUP( "WorldRenderLayer" );
 
    // One list per resident zone: the 3 or 4 around the player, plus the zone cache on the Vita.
 #ifdef RAD_VITA
-   const int numLoadLists = 12;
+   const int numLoadLists = 24;   // the 13 outside zones of level 1 and 4 and more with "zonepreload=1"
 #else
    const int numLoadLists = 7;
 #endif

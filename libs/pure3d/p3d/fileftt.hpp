@@ -57,6 +57,12 @@ public:
     // vertex buffer creation, spatial trees) used to keep the main thread waiting.
     static void YieldIfDue(void);
 
+    // Vita only (no-op elsewhere). A file read here whole is later loaded from memory, without
+    // touching the card. To be called from the main thread, behind a loading screen.
+    static bool RamFileAdd(const char* filename);
+    static void RamFilesClear(void);        // frees those no load is reading anymore
+    static void RamFilesLog(unsigned ms);
+
 protected:
 
     IRadFile*    m_pIRadFile;
@@ -85,6 +91,10 @@ protected:
     int bufferSize;
     
     bool done; 
+
+#ifdef RAD_VITA
+    struct RamFile* m_pRamFile;
+#endif
 
     static unsigned mTaskedOutTime;
 

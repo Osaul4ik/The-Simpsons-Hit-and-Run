@@ -168,8 +168,14 @@ private:
    int  mNumZoneCache;
    void ZoneCachePurgeStale();
    void ZoneCacheRemove( const char* name );
-   void ZoneCacheEvictOldest();
+   void ZoneCacheEvictOldest( const char* why );
    void ZoneCacheFlush();
+#ifdef RAD_VITA
+   int  ZonePreloadNext();
+   ZoneEventLocator* mpPreloadZEL;       // the rest of the level, while and after it loads
+   ZoneEventLocator* mpPreloadRequest;   // the load it follows
+   unsigned long long mPreloadStartUs;
+#endif
    void ZoneCacheMakeRoom( int listsNeeded );
    bool ZoneCacheDefer( const char* name );
    bool mbIgnoreVisibilityClear;

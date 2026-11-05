@@ -75,6 +75,8 @@ static void ProcessCommandLineArgumentsFromFile();
 // per line, so they can be tuned without rebuilding:
 //     fps=30            30 (default) or 60; also chosen in the game's Options menu,
 //                       which rewrites this line
+//     zonepreload=1     all the outside zones of a level load behind the loading screen and stay, so
+//                       nothing streams while driving; 0 = they load on the way, the level opens faster
 //     zonecache=8       max zones kept resident after leaving them (0 = off)
 //     zonefade=600      milliseconds over which what a zone adds fades in, 0 = it just appears
 //     smalldist=100     metres from which small things (hydrants, ...) are not drawn; the original
@@ -109,6 +111,7 @@ static void ProcessCommandLineArgumentsFromFile();
 #ifndef RAD_VITA_FRAME_RATE
 #define RAD_VITA_FRAME_RATE 30            // 30 or 60
 #endif
+extern int g_vitaZonePreload;                                  // render/RenderManager/RenderManager.cpp
 int g_vitaZoneCacheMaxZones = RAD_VITA_ZONE_CACHE_MAX_ZONES;   // read by RenderManager
 int g_gxmFrameRate          = RAD_VITA_FRAME_RATE;             // read by gxmDisplay::displayCallback
 #ifdef RAD_LOG
@@ -218,6 +221,10 @@ static void LoadVitaConfig()
         else if( sscanf( line, "hwskin=%d", &v ) == 1 )
         {
             g_gxmHardwareSkinning = v != 0;
+        }
+        else if( sscanf( line, "zonepreload=%d", &v ) == 1 )
+        {
+            g_vitaZonePreload = v != 0;
         }
         else if( sscanf( line, "zonecache=%d", &v ) == 1 )
         {
@@ -569,7 +576,7 @@ void LogProgressBrief( const char* stage )
 //=============================================================================
 #ifdef RAD_VITA
 #ifndef RAD_VITA_ZONE_CACHE_MAX_MALLOC_KB
-#define RAD_VITA_ZONE_CACHE_MAX_MALLOC_KB ( 96 * 1024 )
+#define RAD_VITA_ZONE_CACHE_MAX_MALLOC_KB ( 200 * 1024 )
 #endif
 #ifndef RAD_VITA_ZONE_CACHE_MIN_CDRAM_FREE_KB
 #define RAD_VITA_ZONE_CACHE_MIN_CDRAM_FREE_KB ( 24 * 1024 )

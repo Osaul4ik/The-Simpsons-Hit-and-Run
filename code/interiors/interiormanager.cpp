@@ -26,6 +26,10 @@
 // Project Includes
 //========================================
 #include <interiors/interiormanager.h>
+#ifdef RAD_VITA
+#include <p3d/fileftt.hpp>
+#include <radtime.hpp>
+#endif
 
 #include <ai/sequencer/actioncontroller.h>
 #include <ai/sequencer/action.h>
@@ -1236,6 +1240,18 @@ void InteriorManager::OnMissionRestart()
 //==============================================================================
 void InteriorManager::OnGameplayStart()
 {
+#ifdef RAD_VITA
+    // The gags of the level come and go as the player walks around. Their files wait in memory, so
+    // that does not read the card. What does not fit is read from the card as before.
+    const radTime64 gagFilesStart = radTimeGetMicroseconds64();
+    for( int gagFile = 0; gagFile < mBindingCount; gagFile++ )
+    {
+        char gagFileName[ 64 ];
+        snprintf( gagFileName, sizeof( gagFileName ), "art\\nis\\gags\\%s", mGagBindings[ gagFile ].gagFileName );
+        tFileFTT::RamFileAdd( gagFileName );
+    }
+    tFileFTT::RamFilesLog( (unsigned)( ( radTimeGetMicroseconds64() - gagFilesStart ) / 1000 ) );
+#endif
     if(!mLoadedGags)
     {
         mEntryRequested = false;
@@ -1260,6 +1276,9 @@ void InteriorManager::OnGameplayStart()
 void InteriorManager::OnGameplayEnd()
 {
     ClearGags();
+#ifdef RAD_VITA
+    tFileFTT::RamFilesClear();
+#endif
     this->ClearGagBindings();
 
     SwitchToExterior();

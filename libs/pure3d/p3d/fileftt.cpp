@@ -60,6 +60,37 @@ static unsigned gYieldTime = 5200;  // microseconds
 #endif
 static unsigned gYieldTick = 0;
 
+#ifdef RAD_VITA
+#include <malloc.h>
+#include <stdlib.h>
+// Files kept whole in memory. An entry never moves and is not freed while a load reads it.
+struct RamFile
+{
+    char name[ 64 ];
+    unsigned char* data;
+    int size;
+    int refs;
+};
+static const int RAM_FILES = 64;
+static const unsigned RAM_FILES_MAX_BYTES = 32 * 1024 * 1024;
+static RamFile gRamFiles[ RAM_FILES ];
+static unsigned gRamFileBytes = 0;
+// What a read past the end of a file gets, as it must end some day.
+static char gRamFileEnd[ 4096 ];
+
+static RamFile* FindRamFile( const char* filename )
+{
+    for( int i = 0; i < RAM_FILES; i++ )
+    {
+        if( gRamFiles[ i ].data != NULL && strcmp( gRamFiles[ i ].name, filename ) == 0 )
+        {
+            return &gRamFiles[ i ];
+        }
+    }
+    return NULL;
+}
+#endif
+
 // Gives control back to the main thread when the loader's slice has expired.
 static inline void YieldIfSliceExpired()
 {
@@ -80,6 +111,87 @@ static char globalCache[ (CACHE_SIZE * 2) + 1024];
     static char* globalUncompressedCache = (char*)0x70002500; // nv:  Simpson's hack to put load buffer in SPR
                                                               // magic address to avoid mfifo, and Pure3D shaders that use SPR
 #endif
+
+//--------------------------------------------------------------------------
+bool tFileFTT::RamFileAdd(const char* filename)
+{
+#ifdef RAD_VITA
+    if( FindRamFile( filename ) != NULL )
+    {
+        return true;
+    }
+    RamFile* entry = NULL;
+    for( int i = 0; i < RAM_FILES && entry == NULL; i++ )
+    {
+        if( gRamFiles[ i ].data == NULL )
+        {
+            entry = &gRamFiles[ i ];
+        }
+    }
+    if( entry == NULL || strlen( filename ) >= sizeof( entry->name ) )
+    {
+        return false;
+    }
+
+    IRadFile* file = NULL;
+    radFileOpenSync( &file, filename );
+    bool ok = false;
+    if( file != NULL )
+    {
+        const int size = file->IsOpen() ? (int)file->GetSize() : 0;
+        if( size > 0 && gRamFileBytes + (unsigned)size <= RAM_FILES_MAX_BYTES )
+        {
+            // whole sectors: the drive reads the end of a file rounded up
+            const unsigned rounded = ::radMemoryRoundUp( (unsigned)size, file->GetOptimalSize() );
+            unsigned char* data = (unsigned char*)memalign( 64, rounded );
+            if( data != NULL )
+            {
+                file->ReadSync( data, rounded );
+                strcpy( entry->name, filename );
+                entry->data = data;
+                entry->size = size;
+                entry->refs = 0;
+                gRamFileBytes += (unsigned)size;
+                ok = true;
+            }
+        }
+        file->Release();
+    }
+    return ok;
+#else
+    (void)filename;
+    return false;
+#endif
+}
+
+void tFileFTT::RamFilesClear(void)
+{
+#ifdef RAD_VITA
+    for( int i = 0; i < RAM_FILES; i++ )
+    {
+        if( gRamFiles[ i ].data != NULL && gRamFiles[ i ].refs == 0 )
+        {
+            free( gRamFiles[ i ].data );
+            gRamFiles[ i ].data = NULL;
+            gRamFileBytes -= (unsigned)gRamFiles[ i ].size;
+        }
+    }
+#endif
+}
+
+void tFileFTT::RamFilesLog(unsigned ms)
+{
+#ifdef RAD_VITA
+    int count = 0;
+    for( int i = 0; i < RAM_FILES; i++ )
+    {
+        count += gRamFiles[ i ].data != NULL ? 1 : 0;
+    }
+    rReleasePrintf( "[ramfiles] %d files in memory, %u KB, read in %u ms\n", count, gRamFileBytes / 1024, ms );
+#else
+    (void)ms;
+#endif
+}
 
 //--------------------------------------------------------------------------
 void tFileFTT::SetYieldTime(unsigned ms)
@@ -232,11 +344,20 @@ tFileFTT::tFileFTT(const char* filename, bool synchronous) :
     SetFilename(filename);
     rAssert(!synchronous);
     uncompressedcache = NULL;
+#ifdef RAD_VITA
+    m_pRamFile = NULL;
+#endif
 }
 
 //--------------------------------------------------------------------------
 tFileFTT::~tFileFTT()
 {
+#ifdef RAD_VITA
+    if( m_pRamFile != NULL )
+    {
+        m_pRamFile->refs--;
+    }
+#endif
     if(m_pIRadFile != NULL)
     {
         m_pIRadFile->Release( );
@@ -269,6 +390,13 @@ void tFileFTT::SetPosition(int offset)
         currentPos += signedoffset;
         position = offset;
     }
+#ifdef RAD_VITA
+    else if( m_pRamFile != NULL )
+    {
+        currentPos = offset < 0 ? 0 : ( offset > currentSize ? currentSize : offset );
+        position = currentPos;
+    }
+#endif
     else
     {
         filePosition = offset & 0xfffff800;
@@ -590,6 +718,27 @@ void tFileFTT::Decompress (const unsigned char* input, unsigned int inputsize,
 //--------------------------------------------------------------------------
 void tFileFTT::FillBuffer()
 {
+#ifdef RAD_VITA
+    if( m_pRamFile != NULL )
+    {
+        // The whole file is the buffer, so all a compressed file needs is the next block of it.
+        bool nextBlock = false;
+        if( compressed && compressedPos + 8 <= compressedSize )
+        {
+            P3D_U32 blockSize;
+            memcpy( &blockSize, &compressedBuffer[ compressedPos ], 4 );
+            EndianSwap( &blockSize, 1, 4 );
+            nextBlock = compressedPos + 8 + (int)blockSize <= compressedSize;
+        }
+        if( !nextBlock )
+        {
+            currentBuffer = gRamFileEnd;
+            currentPos = 0;
+            currentSize = sizeof( gRamFileEnd );
+            return;
+        }
+    }
+#endif
     if (compressed)
     {
         struct 
@@ -676,6 +825,30 @@ void tFileFTT::FillBuffer()
 //--------------------------------------------------------------------------
 void tFileFTT::OpenFile( void )
 {
+#ifdef RAD_VITA
+    if( m_pRamFile != NULL )
+    {
+        return;
+    }
+    if( m_pIRadFile == NULL )
+    {
+        m_pRamFile = FindRamFile( this->GetFullFilename() );
+        if( m_pRamFile != NULL )
+        {
+            gLastTime = radTimeGetMicroseconds64();
+            m_pRamFile->refs++;
+            fileSize = m_pRamFile->size;
+            filePosition = fileSize;
+            currentCache = 0;
+            currentBuffer = (char*)m_pRamFile->data;
+            currentPos = 0;
+            currentSize = fileSize;
+            nextSize = 0;
+            bufferSize = fileSize;
+            return;
+        }
+    }
+#endif
     if ( m_pIRadFile == NULL )
     {
         gLastTime = radTimeGetMicroseconds64();

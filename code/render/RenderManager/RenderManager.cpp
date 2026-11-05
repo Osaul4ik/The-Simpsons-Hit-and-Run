@@ -108,7 +108,9 @@ bool ZoneCacheHasHeadroom();
 // frame time, so a small cap is enough: it only has to cover the zones around the player.
 #ifdef RAD_VITA
 extern int g_vitaZoneCacheMaxZones;
-#define ZONE_CACHE_LIMIT g_vitaZoneCacheMaxZones
+extern int g_vitaZonePreload;
+// The whole level stays with the preload, zonecache=0 still turns the cache off.
+#define ZONE_CACHE_LIMIT ( g_vitaZoneCacheMaxZones > 0 && g_vitaZonePreload ? 32 : g_vitaZoneCacheMaxZones )
 #else
 #define ZONE_CACHE_LIMIT 0
 #endif
@@ -477,7 +479,7 @@ void RenderManager::ZoneCacheRemove( const char* name )
 }
 
 // Really dump the oldest cached zone.
-void RenderManager::ZoneCacheEvictOldest()
+void RenderManager::ZoneCacheEvictOldest( const char* why )
 {
     if( mNumZoneCache <= 0 )
     {
@@ -491,7 +493,8 @@ void RenderManager::ZoneCacheEvictOldest()
 ZSTALL_BEGIN( evictT0 );
     mpRenderLayers[RenderEnums::LevelSlot]->DumpDynaLoad( n, mEntityDeletionList );
 ZSTALL_END( evictT0, "zone cache: evict (dump)", 5 );
-    rReleasePrintf( "[zonecache] evicted %s, cached=%d\n", mZoneCache[0], mNumZoneCache - 1 );
+    rReleasePrintf( "[zonecache] evicted %s, cached=%d, because %s, free lists=%d, memory ok=%d\n", mZoneCache[0], mNumZoneCache - 1, why,
+                    mpRenderLayers[RenderEnums::LevelSlot]->GetFreeDynaLoadLists(), ZoneCacheHasHeadroom() ? 1 : 0 );
 
     for( int k = 0; k < mNumZoneCache - 1; k++ )
     {
@@ -502,9 +505,10 @@ ZSTALL_END( evictT0, "zone cache: evict (dump)", 5 );
 
 void RenderManager::ZoneCacheFlush()
 {
+    ZoneCachePurgeStale();     // the zones of the last level are gone already
     while( mNumZoneCache > 0 )
     {
-        ZoneCacheEvictOldest();
+        ZoneCacheEvictOldest( "interior" );
     }
 }
 
@@ -516,9 +520,139 @@ void RenderManager::ZoneCacheMakeRoom( int listsNeeded )
     while( mNumZoneCache > 0 &&
            mpRenderLayers[RenderEnums::LevelSlot]->GetFreeDynaLoadLists() < listsNeeded )
     {
-        ZoneCacheEvictOldest();
+        ZoneCacheEvictOldest( "no free load list" );
     }
 }
+
+#ifdef RAD_VITA
+//========================================================================
+// Whole level in memory (Vita), "zonepreload=0" in vita.cfg turns it off
+//========================================================================
+//
+// Behind the loading screen, after the zones the level starts in, all its other outside zones are
+// loaded too and put to sleep in the zone cache. The triggers then find them loaded and wake them,
+// so nothing streams while driving. Mission zones and interiors still load when they are needed.
+//
+//========================================================================
+int g_vitaZonePreload = 1;
+
+// lNr.. and lNz.. are the zones of the outside; everything else (l3i05, l5_sr1p, l3r5_dam) is not.
+static bool IsExteriorZone( const char* name )
+{
+    if( ( name[0] != 'l' && name[0] != 'L' ) || name[1] < '1' || name[1] > '7' || ( name[2] != 'r' && name[2] != 'z' ) )
+    {
+        return false;
+    }
+    const char* underscore = strchr( name, '_' );
+    return underscore == NULL;
+}
+
+// The outside zones of a level, as in the level data. Returns how many, 0 for no such level.
+int ZonePreloadList( int level, char list[][ 12 ] )
+{
+    static const char* const s_wide[] = { "r1", "r2", "r3", "r4a", "r4b", "r6", "r7", "z1", "z2", "z3", "z4", "z6", "z7" };
+    static const char* const s_small[] = { "r1", "r2", "r3", "r4", "z1", "z2", "z3", "z4" };
+    static const char* const s_five[] = { "r1", "r2", "r3", "r4", "r5", "z1", "z2", "z3", "z4", "z5" };
+    static const char* const s_seven[] = { "r1", "r2", "r3", "r6", "r7", "z1", "z2", "z3", "z6", "z7" };
+    const char* const* names;
+    int count;
+    switch( level )
+    {
+    case 1: case 4: names = s_wide;  count = 13; break;
+    case 2: case 5: names = s_small; count = 8;  break;
+    case 3: case 6: names = s_five;  count = 10; break;
+    case 7:         names = s_seven; count = 10; break;
+    default: return 0;
+    }
+    for( int i = 0; i < count; i++ )
+    {
+        snprintf( list[ i ], 12, "l%d%s.p3d", level, names[ i ] );
+    }
+    return count;
+}
+
+// Called when a zone load has nothing left to do. Returns the index of the next zone of mpZEL to
+// load, or mpZEL->GetNumLoadZones() when there is none, and then mpZEL is the load that was asked for.
+int RenderManager::ZonePreloadNext()
+{
+    tName name;
+    if( mpZEL == mpPreloadZEL )
+    {
+        // Done: the zones go to sleep as if the player had left them.
+        for( int z = 0; z < mpZEL->GetNumLoadZones(); z++ )
+        {
+            HeapMgr()->PushHeap( GMA_TEMP );
+            name.SetText( mpZEL->GetLoadZone( z ) );
+            HeapMgr()->PopHeap( GMA_TEMP );
+            if( mpRenderLayers[RenderEnums::LevelSlot]->IsDynaLoaded( name ) && mNumZoneCache < ZONE_CACHE_SLOTS )
+            {
+                ZoneCacheRemove( mpZEL->GetLoadZone( z ) );
+                mpRenderLayers[RenderEnums::LevelSlot]->SetDynaZoneActive( name, false );
+                strcpy( mZoneCache[mNumZoneCache], mpZEL->GetLoadZone( z ) );
+                mNumZoneCache++;
+            }
+        }
+        rReleasePrintf( "[zonepreload] done: %d zones in memory, %u ms, free load lists=%d\n", mNumZoneCache,
+                        (unsigned)( ( radTimeGetMicroseconds64() - mPreloadStartUs ) / 1000 ),
+                        mpRenderLayers[RenderEnums::LevelSlot]->GetFreeDynaLoadLists() );
+        mpZEL = mpPreloadRequest;
+        return mpZEL->GetNumLoadZones();
+    }
+
+    if( !g_vitaZonePreload || ZONE_CACHE_LIMIT <= 0 || !mbFirstDynamicZone || mbLoadZonesDumped ||
+        mpZEL->IsInteriorLoad() || mZELs.mUseSize != 0 )
+    {
+        return mpZEL->GetNumLoadZones();
+    }
+
+    char list[ 13 ][ 12 ];
+    const int count = ZonePreloadList( (int)GetGameplayManager()->GetCurrentLevelIndex() + 1, list );
+    char zones[ 180 ];
+    int used = 0;
+    for( int z = 0; z < count; z++ )
+    {
+        HeapMgr()->PushHeap( GMA_TEMP );
+        name.SetText( list[ z ] );
+        HeapMgr()->PopHeap( GMA_TEMP );
+        if( !mpRenderLayers[RenderEnums::LevelSlot]->IsDynaLoaded( name ) )
+        {
+            used += snprintf( zones + used, sizeof( zones ) - used, "%s;", list[ z ] );
+        }
+    }
+    if( used == 0 || !ZoneCacheHasHeadroom() )
+    {
+        return mpZEL->GetNumLoadZones();
+    }
+
+    if( mpPreloadZEL )
+    {
+        mpPreloadZEL->Release();
+    }
+    HeapMgr()->PushHeap( GMA_PERSISTENT );
+    mpPreloadZEL = new ZoneEventLocator();
+    mpPreloadZEL->AddRef();
+    mpPreloadZEL->SetZoneSize( (unsigned char)( used + 1 ) );
+    mpPreloadZEL->SetZone( zones );
+    HeapMgr()->PopHeap( GMA_PERSISTENT );
+
+    mPreloadStartUs = radTimeGetMicroseconds64();
+    mpPreloadRequest = mpZEL;
+    mpZEL = mpPreloadZEL;
+    rReleasePrintf( "[zonepreload] loading the rest of the level: %s\n", zones );
+
+    for( int z = 0; z < mpZEL->GetNumLoadZones(); z++ )
+    {
+        HeapMgr()->PushHeap( GMA_TEMP );
+        name.SetText( mpZEL->GetLoadZone( z ) );
+        HeapMgr()->PopHeap( GMA_TEMP );
+        if( mpRenderLayers[RenderEnums::LevelSlot]->DoPreDynaLoad( name ) )
+        {
+            return z;
+        }
+    }
+    return ZonePreloadNext();
+}
+#endif
 
 // Returns true if the dump of this zone was deferred (zone kept resident),
 // false if the caller must dump it now.
@@ -550,7 +684,7 @@ bool RenderManager::ZoneCacheDefer( const char* name )
              mNumZoneCache >= ZONE_CACHE_SLOTS ||
              !ZoneCacheHasHeadroom() ) )
     {
-        ZoneCacheEvictOldest();
+        ZoneCacheEvictOldest( mNumZoneCache >= ZONE_CACHE_LIMIT || mNumZoneCache >= ZONE_CACHE_SLOTS ? "limit" : "memory" );
     }
 
     if( ZONE_CACHE_LIMIT <= 0 || !ZoneCacheHasHeadroom() )
@@ -1271,6 +1405,13 @@ ZSTALL_END( namedT0, "zone-complete: EVENT_NAMED_DYNAMIC_ZONE_LOAD_ENDED", 10 );
                 
             }
 
+#ifdef RAD_VITA
+            if( mpZEL == mpPreloadZEL && !ZoneCacheHasHeadroom() )
+            {
+                rReleasePrintf( "[zonepreload] out of memory, the rest loads on the way\n" );
+                i = mpZEL->GetNumLoadZones();
+            }
+#endif
             for(i;i<mpZEL->GetNumLoadZones()&&alreadyLoaded; )
             {
                 i++;
@@ -1284,6 +1425,14 @@ ZSTALL_END( namedT0, "zone-complete: EVENT_NAMED_DYNAMIC_ZONE_LOAD_ENDED", 10 );
                 }
             }
 
+#ifdef RAD_VITA
+            // All the zones this load asked for are in. On the way into a level, the rest of the
+            // level comes next, still behind the loading screen.
+            if( i >= mpZEL->GetNumLoadZones() )
+            {
+                i = ZonePreloadNext();
+            }
+#endif
             if(i<mpZEL->GetNumLoadZones())
             {
                 sprintf(spSomeDamnFile,"art\\%s",mpZEL->GetLoadZone(i));
@@ -1744,7 +1893,7 @@ BEGIN_PROFILE( "Zone/Int Dump" );
                 {
                     ZoneCacheRemove( mpZEL->GetLoadZone(i) );
                 }
-                zoneCacheOn = !mpZEL->IsInteriorDump() && !mpZEL->IsInteriorLoad();
+                zoneCacheOn = g_vitaZonePreload || ( !mpZEL->IsInteriorDump() && !mpZEL->IsInteriorLoad() );
                 if( !zoneCacheOn )
                 {
                     ZoneCacheFlush();
@@ -1756,7 +1905,9 @@ BEGIN_PROFILE( "Dump Zones" );
             for(i=0; i<mpZEL->GetNumDumpZones(); i++)
             {
 #ifdef RAD_VITA
-               if( zoneCacheOn && ZoneCacheDefer( mpZEL->GetDumpZone(i) ) )
+               // With the whole level in memory the outside stays there too; only an interior goes.
+               if( zoneCacheOn && !( g_vitaZonePreload && !IsExteriorZone( mpZEL->GetDumpZone(i) ) ) &&
+                   ZoneCacheDefer( mpZEL->GetDumpZone(i) ) )
                {
                   continue;
                }
@@ -2070,6 +2221,11 @@ RenderManager::RenderManager() :
    mDoneInitialLoad = false;
    mbLoadZonesDumped = false;
    mNumZoneCache = 0;
+#ifdef RAD_VITA
+   mpPreloadZEL = NULL;
+   mpPreloadRequest = NULL;
+   mPreloadStartUs = 0;
+#endif
    mbIgnoreVisibilityClear = false;
    mbInVsibilityVolume = false;
 
