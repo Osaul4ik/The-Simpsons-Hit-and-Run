@@ -320,6 +320,9 @@ float g_vitaCullMargin = 4.0f;          // "cullmargin=" in vita.cfg, metres
 // The cone below is as wide as the screen and just as high, so a 16:9 view draws a lot above and
 // below the picture. "framecull=0" in vita.cfg leaves it at the cone.
 bool g_vitaFrameCull = true;
+int g_vitaPixCull = 4;          // "pixcull=" in vita.cfg: solid things smaller than this radius on screen, in pixels
+static float s_pixPerUnit = 800.0f;     // radius / distance to pixels on the 960 wide screen
+static unsigned s_pixUnder2 = 0, s_pixUnder4 = 0, s_pixUnder8 = 0;
 bool g_vitaOcclusion = true;    // "occlusion=0" in vita.cfg
 bool g_vitaOcclSort = true;     // "occlsort=0" in vita.cfg: sorted by material alone, as in the original
 #define VITA_OCCL_NEAR_METRES 30.0f   // closer than this is always drawn: a late pop would show
@@ -334,6 +337,27 @@ static unsigned s_cullInCone = 0, s_cullOutOfFrame = 0, s_cullBeyondDrawDist = 0
 bool WorldScene::VitaInFrame( const rmt::Vector& irCenter, float iRadius )
 {
     ++s_cullInCone;
+    {
+        // There are no lower detail models of the world: what is only a few pixels is left out.
+        rmt::Vector toCamera;
+        toCamera.Sub( mViewPosn, irCenter );
+        const float distSqr = toCamera.MagnitudeSqr();
+        const float radiusPx = iRadius * s_pixPerUnit;
+        const float radiusPxSqr = radiusPx * radiusPx;
+        if( radiusPxSqr < 64.0f * distSqr )
+        {
+            ++s_pixUnder8;
+            if( radiusPxSqr < 16.0f * distSqr )
+            {
+                ++s_pixUnder4;
+                if( radiusPxSqr < 4.0f * distSqr ) { ++s_pixUnder2; }
+            }
+            if( g_vitaPixCull > 0 && radiusPxSqr < (float)( g_vitaPixCull * g_vitaPixCull ) * distSqr )
+            {
+                return false;
+            }
+        }
+    }
     const rmt::Vector4& farPlane = mCamPlanes[ 4 ];
     if( farPlane.x * irCenter.x + farPlane.y * irCenter.y + farPlane.z * irCenter.z + farPlane.w > iRadius )
     {
@@ -2611,6 +2635,11 @@ void WorldScene::MarkCameraVisible( tPointCamera* pCam, unsigned int iFilter )
       pCam->SetFarPlane( mDrawDist );
       BuildFrustumPlanes( pCam, mCamPlanes );
       pCam->SetFarPlane( realFar );
+      {
+         float fov, aspect;
+         pCam->GetFOV( &fov, &aspect );
+         s_pixPerUnit = 480.0f / rmt::Tan( fov * 0.5f );
+      }
       const rmt::Matrix& camToWorld = pCam->GetCameraToWorldMatrix();
       rmt::Vector ahead = camToWorld.Row( 3 );
       ahead.ScaleAdd( 10.0f, camToWorld.Row( 2 ) );
@@ -2623,9 +2652,11 @@ void WorldScene::MarkCameraVisible( tPointCamera* pCam, unsigned int iFilter )
       }
       if( ++s_cullFrames >= 600 )
       {
-         rReleasePrintf( "[cull] per frame: %u solid things in the cone, %u of them out of the picture, %u past the draw distance (%.0f m), framecull=%d\n",
-                         s_cullInCone / s_cullFrames, s_cullOutOfFrame / s_cullFrames, s_cullBeyondDrawDist / s_cullFrames, mDrawDist, g_vitaFrameCull ? 1 : 0 );
+         rReleasePrintf( "[cull] per frame: %u solid things in the cone, %u of them out of the picture, %u past the draw distance (%.0f m), framecull=%d; radius under 2/4/8 pixels: %u/%u/%u, pixcull=%d\n",
+                         s_cullInCone / s_cullFrames, s_cullOutOfFrame / s_cullFrames, s_cullBeyondDrawDist / s_cullFrames, mDrawDist, g_vitaFrameCull ? 1 : 0,
+                         s_pixUnder2 / s_cullFrames, s_pixUnder4 / s_cullFrames, s_pixUnder8 / s_cullFrames, g_vitaPixCull );
          s_cullInCone = s_cullOutOfFrame = s_cullBeyondDrawDist = s_cullFrames = 0;
+         s_pixUnder2 = s_pixUnder4 = s_pixUnder8 = 0;
       }
    }
 #endif
