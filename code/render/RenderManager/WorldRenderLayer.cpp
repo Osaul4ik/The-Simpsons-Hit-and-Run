@@ -1597,6 +1597,7 @@ int WorldRenderLayer::GetFreeDynaLoadLists()
 //
 #ifdef RAD_VITA
 extern float g_vitaLandmarkRadius;   // render/Culling/WorldScene.cpp
+bool g_vitaSkylineAll = false;       // "skylineall=" in vita.cfg, code/main/win32main.cpp
 #endif
 
 int WorldRenderLayer::SetDynaZoneActive(tName& irGiveItAFuckinName, bool active)
@@ -1614,13 +1615,14 @@ int WorldRenderLayer::SetDynaZoneActive(tName& irGiveItAFuckinName, bool active)
 
 #ifdef RAD_VITA
       // Zones in the zone cache are not drawn: a zone's tree walls and backdrops are made to be seen
-      // only from around it, and stand in the view elsewhere. The skyline stays, see WorldScene::Place.
+      // only from around it, and stand in the view elsewhere. What is drawn is what would be drawn
+      // if the sleeping zones were not loaded; skylineall=1 keeps their landmarks, see WorldScene::Place.
       rmt::Sphere sphere;
       for(int j=0;j<list->mSEntityElems.mUseSize;j++)
       {
          IEntityDSG* e = list->mSEntityElems[j];
          e->GetBoundingSphere( &sphere );
-         const bool landmark = g_vitaLandmarkRadius > 0.0f && sphere.radius >= g_vitaLandmarkRadius;
+         const bool landmark = g_vitaSkylineAll && g_vitaLandmarkRadius > 0.0f && sphere.radius >= g_vitaLandmarkRadius;
          e->mZoneAsleep = !active && !landmark;
          if( active && !landmark ) { VITA_FADE_IN( e ); }
       }
