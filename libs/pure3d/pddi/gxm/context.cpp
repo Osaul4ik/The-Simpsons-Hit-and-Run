@@ -41,18 +41,21 @@ namespace
 {
     struct GxmDrawTimer
     {
+        const char* name;
         SceUInt32 start;
-        GxmDrawTimer() : start(g_vitaProfEnabled ? sceKernelGetProcessTimeLow() : 0) {}
+        GxmDrawTimer(const char* n) : name(n), start(g_vitaProfEnabled ? sceKernelGetProcessTimeLow() : 0) {}
         ~GxmDrawTimer()
         {
             if(g_vitaProfEnabled)
-                vitaProfAdd("GXM: draw calls", sceKernelGetProcessTimeLow() - start);
+                vitaProfAdd(name, sceKernelGetProcessTimeLow() - start);
         }
     };
 }
-#define GXM_DRAW_TIMER() GxmDrawTimer gxmDrawTimer
+#define GXM_DRAW_TIMER() GxmDrawTimer gxmDrawTimer("GXM: draw calls")
+#define GXM_NAMED_TIMER(name) GxmDrawTimer gxmNamedTimer(name)
 #else
 #define GXM_DRAW_TIMER()
+#define GXM_NAMED_TIMER(name)
 #endif
 
 // Runtime switches, from vita.cfg ("fastshaders=0", "hwskin=0"; code/main/win32main.cpp)
@@ -551,6 +554,7 @@ public:
 
 pddiPrimStream* gxmContext::BeginPrims(pddiShader* mat, pddiPrimType primType, unsigned vertexType, int vertexCount, unsigned pass)
 {
+    GXM_NAMED_TIMER("GXM: BeginPrims");
     if(!mat)
         mat = defaultShader;
     PDDIASSERT(vertexCount);
@@ -1032,17 +1036,20 @@ protected:
 
 void gxmContext::DrawPrimBuffer(pddiShader* mat, pddiPrimBuffer* buffer)
 {
+    {
+        GXM_NAMED_TIMER("GXM: SetMaterial");
+        if(!mat)
+            mat = defaultShader;
+
+        FlushStencilState();
+
+        pddiBaseShader* material = (pddiBaseShader*)mat;
+        ADD_STAT(PDDI_STAT_MATERIAL_OPS, !material->IsCurrent());
+        currentDrawBuffer = (gxmPrimBuffer*)buffer;
+        material->SetMaterial();
+    }
+
     GXM_DRAW_TIMER();
-    if(!mat)
-        mat = defaultShader;
-
-    FlushStencilState();
-
-    pddiBaseShader* material = (pddiBaseShader*)mat;
-    ADD_STAT(PDDI_STAT_MATERIAL_OPS, !material->IsCurrent());
-    currentDrawBuffer = (gxmPrimBuffer*)buffer;
-    material->SetMaterial();
-
     ((gxmPrimBuffer*)buffer)->Display();
 }
 

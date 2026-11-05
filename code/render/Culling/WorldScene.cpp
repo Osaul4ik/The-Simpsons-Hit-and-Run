@@ -1,3 +1,4 @@
+#include <typeinfo>
 #include <render/Culling/WorldScene.h>
 #include <render/Culling/SpatialTreeFactory.h>
 #include <render/Culling/SpatialTree.h>
@@ -1808,7 +1809,15 @@ BEGIN_PROFILE("qsort2 display")
         }
         g_gxmFadeAlpha = mpZSortsPass2[i]->FadeAlpha();
 #endif
+#if defined( RAD_VITA ) && defined( RAD_LOG )
+        // One mark per class: what the time of this loop is made of.
+        const char* const vitaClassMark = typeid( *mpZSortsPass2[i] ).name();
+        vitaProfBegin( vitaClassMark );
+#endif
 		mpZSortsPass2[i]->Display();
+#if defined( RAD_VITA ) && defined( RAD_LOG )
+        vitaProfEnd( vitaClassMark );
+#endif
 #ifdef RAD_VITA
         g_gxmFadeAlpha = 255;
 #endif

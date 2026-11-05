@@ -16,7 +16,7 @@ int g_vitaProfEnabled = 0;      // read from vita.cfg, code/main/win32main.cpp
 
 namespace
 {
-    enum { MAX_MARKS = 512, MAX_DEPTH = 32, REPORT_ROWS = 36 };
+    enum { MAX_MARKS = 512, MAX_DEPTH = 32, REPORT_ROWS = 56 };
 
     struct Mark
     {
@@ -146,6 +146,11 @@ void vitaProfAdd( const char* name, unsigned microseconds )
         m->calls++;
         m->self += microseconds;
         m->total += microseconds;
+    }
+    // Time measured on this thread is part of the open mark: not its own time as well.
+    if( s_depth > 0 && sceKernelGetThreadId() == s_mainThread )
+    {
+        s_stack[ s_depth - 1 ].inner += microseconds;
     }
 }
 
