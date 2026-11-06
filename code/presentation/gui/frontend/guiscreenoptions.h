@@ -66,6 +66,7 @@ private:
         MENU_ITEM_VIEW_CREDITS,
         MENU_ITEM_DISPLAY_MODE,
 #ifdef RAD_VITA
+        MENU_ITEM_MSAA,
         MENU_ITEM_COMPILE_SHADERS,
 #endif
 
@@ -84,6 +85,16 @@ private:
     void UpdateFrameRateLabel();
     void ToggleFrameRate( int direction );
 
+    // The rows do not all fit on the screen: only SCROLL_VISIBLE_ROWS of them show, and the
+    // group moves up by one row when the selection goes past the last visible one.
+    void UpdateScroll( int selection );
+
+    enum { SCROLL_VISIBLE_ROWS = 7, MAX_SCROLL_ROWS = 16 };
+
+    void UpdateMsaaLabel();
+    void ToggleMsaa( int direction );
+
+
     Scrooby::Text* m_frameRateLabel;    // only when the page has no usable value text for the choice
 
     void UpdateShaderStatus();
@@ -96,6 +107,16 @@ private:
     bool m_compileLabelShown;           // the progress was on screen for a frame before the next (slow) step
     bool m_compileFinished;             // this run ended, keep showing its result
     int m_savedFrameRate;
+
+    Scrooby::Group* m_menuGroup;
+    Scrooby::Text* m_rowTexts[ MAX_SCROLL_ROWS ];   // row i = menu item i, the shader status row after the last
+    int m_numRows;
+    int m_rowSpacing;
+    int m_baseShift;                    // the shift of the whole menu at the top of the list, in rows
+    int m_scrollTop;                    // first visible row
+
+    Scrooby::Text* m_msaaLabel;
+    int m_savedMsaa;
 #endif
 
 };

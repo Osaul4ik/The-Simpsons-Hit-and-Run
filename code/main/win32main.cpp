@@ -73,7 +73,9 @@ static void ProcessCommandLineArgumentsFromFile();
 //=============================================================================
 // Runtime settings (Vita). Read from ux0:data/simpsons/vita.cfg, one "key=value"
 // per line, so they can be tuned without rebuilding:
-//     fps=30            30 (default), 35, 40, 45, 50, 55 or 60; also chosen in the game's Options
+//     msaa=0            0 (off), 2 or 4; also chosen in the Options, takes effect on the next start
+//     fps=30            30 (default), 35, 40, 45, 50, 55 or 60; applied after the intro movie ends
+//                       (the game starts at 30 with vsync); also chosen in the game's Options
 //                       menu, which rewrites this line. 30 and 60 wait for the screen; the others do
 //                       not, so the picture can tear, and game time follows the clock
 //     zonepreload=1     all the outside zones of a level load behind the loading screen and stay, so
@@ -122,7 +124,14 @@ static void ProcessCommandLineArgumentsFromFile();
 #endif
 extern int g_vitaZonePreload;                                  // render/RenderManager/RenderManager.cpp
 int g_vitaZoneCacheMaxZones = RAD_VITA_ZONE_CACHE_MAX_ZONES;   // read by RenderManager
-int g_gxmFrameRate          = RAD_VITA_FRAME_RATE;             // read by gxmDisplay::displayCallback
+int g_gxmFrameRate          = 30;                              // read by gxmDisplay::displayCallback; always 30 (vsync) until the intro movie ends
+#ifndef RAD_VITA_MSAA
+#define RAD_VITA_MSAA 0                   // 0 = off, 2 or 4
+#endif
+int g_vitaMsaa              = RAD_VITA_MSAA;                   // "msaa=" in vita.cfg, also chosen in the Options; read at start-up only
+static int  s_vitaMsaaActive = -1;                             // the value the display was created with
+static int  s_vitaTargetFps = RAD_VITA_FRAME_RATE;             // "fps=" from vita.cfg, applied by VitaApplyConfigFrameRate()
+static bool s_vitaTargetFpsPending = true;
 #ifdef RAD_LOG
 extern int g_vitaProfEnabled;                                  // code/debug/vitaprof.cpp
 #endif
@@ -177,7 +186,11 @@ static void LoadVitaConfig()
         int v = 0;
         if( sscanf( line, "fps=%d", &v ) == 1 )
         {
-            VitaSetFrameRate( v );
+            s_vitaTargetFps = v;    // not applied yet: the intro movies run at 30 fps with vsync
+        }
+        else if( sscanf( line, "msaa=%d", &v ) == 1 )
+        {
+            g_vitaMsaa = v >= 4 ? 4 : v >= 2 ? 2 : 0;
         }
         else if( sscanf( line, "log=%d", &v ) == 1 )
         {
@@ -292,11 +305,49 @@ void VitaSetFrameRate( int fps )
     g_gxmVsync = g_gxmFrameRate == 30 || g_gxmFrameRate == 60;
 }
 
-// Writes the current frame rate to vita.cfg, keeping every other line of the file.
+// Called when the intro movie has ended: switches from the 30 fps start to the configured rate.
+// Does nothing on later calls.
+void VitaApplyConfigFrameRate()
+{
+    if( s_vitaTargetFpsPending )
+    {
+        s_vitaTargetFpsPending = false;
+        VitaSetFrameRate( s_vitaTargetFps );
+    }
+}
+
+// MSAA mode for the display: the value from vita.cfg, fixed for this run once the display exists.
+int VitaGetMsaaForInit()
+{
+    if( s_vitaMsaaActive < 0 )
+    {
+        s_vitaMsaaActive = g_vitaMsaa;
+    }
+    return s_vitaMsaaActive;
+}
+
+int VitaGetMsaa()
+{
+    return g_vitaMsaa;
+}
+
+void VitaSetMsaa( int samples )
+{
+    g_vitaMsaa = samples >= 4 ? 4 : samples >= 2 ? 2 : 0;
+}
+
+// The display is created once at start-up, so a new choice needs a restart.
+bool VitaMsaaNeedsRestart()
+{
+    return s_vitaMsaaActive >= 0 && s_vitaMsaaActive != g_vitaMsaa;
+}
+
+// Writes "key=value" to vita.cfg, keeping every other line of the file.
 // A file that does not fit the buffer is left alone (the choice then lasts until the game exits).
-void VitaSaveFrameRate()
+static void SaveVitaConfigValue( const char* key, int value )
 {
     const char* path = "ux0:data/simpsons/vita.cfg";
+    const size_t keyLength = strlen( key );
     char keep[2048];
     size_t keepSize = 0;
 
@@ -307,7 +358,7 @@ void VitaSaveFrameRate()
         bool fits = true;
         while( fits && fgets( line, sizeof( line ), f ) != NULL )
         {
-            if( strncmp( line, "fps=", 4 ) == 0 )
+            if( strncmp( line, key, keyLength ) == 0 && line[ keyLength ] == '=' )
             {
                 continue;
             }
@@ -333,10 +384,21 @@ void VitaSaveFrameRate()
     f = fopen( path, "w" );
     if( f != NULL )
     {
-        fprintf( f, "fps=%d\n", VitaGetFrameRate() );
+        fprintf( f, "%s=%d\n", key, value );
         fwrite( keep, 1, keepSize, f );
         fclose( f );
     }
+}
+
+// Writes the current frame rate to vita.cfg.
+void VitaSaveFrameRate()
+{
+    SaveVitaConfigValue( "fps", VitaGetFrameRate() );
+}
+
+void VitaSaveMsaa()
+{
+    SaveVitaConfigValue( "msaa", g_vitaMsaa );
 }
 #endif
 

@@ -46,6 +46,10 @@
 int VitaGetFrameRate();
 void VitaSetFrameRate( int fps );
 void VitaSaveFrameRate();
+int VitaGetMsaa();
+void VitaSetMsaa( int samples );
+bool VitaMsaaNeedsRestart();
+void VitaSaveMsaa();
 #endif
 
 //===========================================================================
@@ -102,6 +106,13 @@ CGuiScreenOptions::CGuiScreenOptions
 #ifdef RAD_VITA
     , m_frameRateLabel( NULL ),
     m_savedFrameRate( VitaGetFrameRate() ),
+    m_menuGroup( NULL ),
+    m_numRows( 0 ),
+    m_rowSpacing( 0 ),
+    m_baseShift( 0 ),
+    m_scrollTop( 0 ),
+    m_msaaLabel( NULL ),
+    m_savedMsaa( VitaGetMsaa() ),
     m_compileLabel( NULL ),
     m_shaderStatus( NULL ),
     m_compileNext( -1 ),
@@ -186,15 +197,29 @@ MEMTRACK_PUSH_GROUP( "CGUIScreenOptions" );
 #endif
 
 #ifdef RAD_VITA
-    // Two more rows the frontend data does not have, continuing the rows' spacing, and the whole
+    // Three more rows the frontend data does not have, continuing the rows' spacing, and the whole
     // menu moved by one row to stay centered.
     {
         Scrooby::Text* first = pGroup->GetText( "Controller" );
         if( first != NULL && rowSpacing != 0 )
         {
-            // Controller, Sound, ViewMovies, ViewCredits, frame rate: the new ones are rows 6 and 7
-            m_compileLabel = pGroup->AddTextLike( first, "CompileShaders", 0, rowSpacing * 5 );
-            m_shaderStatus = pGroup->AddTextLike( first, "ShaderStatus", 0, rowSpacing * 6 );
+            // Controller, Sound, ViewMovies, ViewCredits, frame rate: the new ones are the rows
+            // MSAA, compile shaders and (not selectable) the shader status
+            m_msaaLabel = pGroup->AddTextLike( first, "Msaa", 0, rowSpacing * 5 );
+            m_compileLabel = pGroup->AddTextLike( first, "CompileShaders", 0, rowSpacing * 6 );
+            m_shaderStatus = pGroup->AddTextLike( first, "ShaderStatus", 0, rowSpacing * 7 );
+        }
+        if( m_msaaLabel != NULL )
+        {
+            // left/right changes it, like the frame rate
+            m_pMenu->AddMenuItem( m_msaaLabel,
+                                  NULL,
+                                  NULL,
+                                  NULL,
+                                  NULL,
+                                  NULL,
+                                  SELECTION_ENABLED | VALUES_WRAPPED | TEXT_OUTLINE_ENABLED );
+            this->UpdateMsaaLabel();
         }
         if( m_compileLabel != NULL && m_shaderStatus != NULL )
         {
@@ -210,11 +235,30 @@ MEMTRACK_PUSH_GROUP( "CGUIScreenOptions" );
             }
             m_shaderStatus->ScaleAboutCenter( 0.8f );
 
-            pGroup->ResetTransformation();
-            pGroup->Translate( 0, -rowSpacing );
-
             this->UpdateShaderStatus();
         }
+
+        // the rows that scroll
+        m_menuGroup = pGroup;
+        m_rowSpacing = rowSpacing;
+        m_baseShift = ( m_compileLabel != NULL && m_shaderStatus != NULL ) ? 1 : 0;
+        m_numRows = ( m_compileLabel != NULL && m_shaderStatus != NULL ) ? NUM_MENU_ITEMS + 1 : NUM_MENU_ITEMS;
+        for( int i = 0; i < MAX_SCROLL_ROWS; i++ )
+        {
+            m_rowTexts[ i ] = NULL;
+        }
+        m_rowTexts[ MENU_ITEM_CONTROLLER ] = pGroup->GetText( "Controller" );
+        m_rowTexts[ MENU_ITEM_SOUND ] = pGroup->GetText( "Sound" );
+        m_rowTexts[ MENU_ITEM_VIEW_MOVIES ] = pGroup->GetText( "ViewMovies" );
+        m_rowTexts[ MENU_ITEM_VIEW_CREDITS ] = pGroup->GetText( "ViewCredits" );
+        m_rowTexts[ MENU_ITEM_DISPLAY_MODE ] = m_frameRateLabel;
+        m_rowTexts[ MENU_ITEM_MSAA ] = m_msaaLabel;
+        m_rowTexts[ MENU_ITEM_COMPILE_SHADERS ] = m_compileLabel;
+        if( m_numRows > NUM_MENU_ITEMS )
+        {
+            m_rowTexts[ NUM_MENU_ITEMS ] = m_shaderStatus;
+        }
+        this->UpdateScroll( 0 );
     }
 #endif
 
@@ -441,13 +485,21 @@ void CGuiScreenOptions::HandleMessage
         {
             this->ToggleFrameRate( message == GUI_MSG_CONTROLLER_LEFT ? -1 : 1 );
         }
+        if( m_msaaLabel != NULL &&
+            ( message == GUI_MSG_CONTROLLER_LEFT || message == GUI_MSG_CONTROLLER_RIGHT ) &&
+            m_pMenu->GetSelection() == MENU_ITEM_MSAA )
+        {
+            this->ToggleMsaa( message == GUI_MSG_CONTROLLER_LEFT ? -1 : 1 );
+        }
 #endif
         switch( message )
         {
             case GUI_MSG_MENU_SELECTION_CHANGED:
             {
 #ifdef RAD_VITA
-                this->SetButtonVisible( BUTTON_ICON_ACCEPT, param1 != MENU_ITEM_DISPLAY_MODE );
+                this->SetButtonVisible( BUTTON_ICON_ACCEPT,
+                                        param1 != MENU_ITEM_DISPLAY_MODE && param1 != MENU_ITEM_MSAA );
+                this->UpdateScroll( static_cast<int>( param1 ) );
 #else
                 this->SetButtonVisible( BUTTON_ICON_ACCEPT, param1 != MENU_ITEM_DISPLAY_MODE );
 #endif
@@ -641,7 +693,12 @@ void CGuiScreenOptions::InitIntro()
         m_pMenu->SetSelectionValue( MENU_ITEM_DISPLAY_MODE, ( VitaGetFrameRate() - 30 ) / 5 );
     }
     this->UpdateFrameRateLabel();
+    this->UpdateMsaaLabel();
     this->UpdateShaderStatus();
+    this->UpdateScroll( m_pMenu->GetSelection() );
+    this->SetButtonVisible( BUTTON_ICON_ACCEPT,
+                            m_pMenu->GetSelection() != MENU_ITEM_DISPLAY_MODE &&
+                            m_pMenu->GetSelection() != MENU_ITEM_MSAA );
 #endif
 
 #ifdef RAD_PS2
@@ -694,6 +751,11 @@ void CGuiScreenOptions::InitOutro()
     {
         VitaSaveFrameRate();
         m_savedFrameRate = VitaGetFrameRate();
+    }
+    if( VitaGetMsaa() != m_savedMsaa )
+    {
+        VitaSaveMsaa();
+        m_savedMsaa = VitaGetMsaa();
     }
 #endif
 }
@@ -799,6 +861,73 @@ void CGuiScreenOptions::ToggleFrameRate( int direction )
     VitaSetFrameRate( fps > 60 ? 30 : fps < 30 ? 60 : fps );
     this->UpdateFrameRateLabel();
 }
+
+void CGuiScreenOptions::UpdateMsaaLabel()
+{
+    if( m_msaaLabel != NULL )
+    {
+        char text[ 32 ];
+        const int samples = VitaGetMsaa();
+        if( samples == 0 )
+        {
+            snprintf( text, sizeof( text ), "MSAA OFF%s", VitaMsaaNeedsRestart() ? " (RESTART)" : "" );
+        }
+        else
+        {
+            snprintf( text, sizeof( text ), "MSAA %dX%s", samples, VitaMsaaNeedsRestart() ? " (RESTART)" : "" );
+        }
+        m_msaaLabel->SetString( 0, text );
+    }
+}
+
+void CGuiScreenOptions::ToggleMsaa( int direction )
+{
+    // off, 2X, 4X and round again. The display exists already: it takes effect on the next start.
+    const int samples = VitaGetMsaa();
+    int index = samples >= 4 ? 2 : samples >= 2 ? 1 : 0;
+    index = ( index + direction + 3 ) % 3;
+    VitaSetMsaa( index == 2 ? 4 : index == 1 ? 2 : 0 );
+    this->UpdateMsaaLabel();
+}
+
+void CGuiScreenOptions::UpdateScroll( int selection )
+{
+    if( m_menuGroup == NULL || m_numRows <= 0 )
+    {
+        return;
+    }
+
+    // the row that has to be on the screen: the selected one, and with the last item also the
+    // status text below it
+    int need = selection < 0 ? 0 : selection;
+    if( m_numRows > NUM_MENU_ITEMS && need == NUM_MENU_ITEMS - 1 )
+    {
+        need = NUM_MENU_ITEMS;
+    }
+
+    if( selection >= 0 && selection < m_scrollTop )
+    {
+        m_scrollTop = selection;
+    }
+    if( need > m_scrollTop + SCROLL_VISIBLE_ROWS - 1 )
+    {
+        m_scrollTop = need - SCROLL_VISIBLE_ROWS + 1;
+    }
+    const int maxTop = m_numRows > SCROLL_VISIBLE_ROWS ? m_numRows - SCROLL_VISIBLE_ROWS : 0;
+    m_scrollTop = m_scrollTop > maxTop ? maxTop : m_scrollTop < 0 ? 0 : m_scrollTop;
+
+    // up is negative
+    m_menuGroup->ResetTransformation();
+    m_menuGroup->Translate( 0, -m_rowSpacing * ( m_baseShift + m_scrollTop ) );
+
+    for( int row = 0; row < m_numRows; row++ )
+    {
+        if( m_rowTexts[ row ] != NULL )
+        {
+            m_rowTexts[ row ]->SetVisible( row >= m_scrollTop && row < m_scrollTop + SCROLL_VISIBLE_ROWS );
+        }
+    }
+}
 #endif
 
 
@@ -892,4 +1021,3 @@ CGuiScreenOptions::OnProgressiveModeTestEnd()
     PS2Platform::GetInstance()->SetProgressiveMode( false );
 #endif
 }
-

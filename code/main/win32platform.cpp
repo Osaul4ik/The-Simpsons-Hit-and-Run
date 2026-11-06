@@ -1593,6 +1593,10 @@ void Win32Platform::ShutdownPure3D()
 //
 //==============================================================================
 
+#ifdef RAD_VITA
+int VitaGetMsaaForInit();   // code/main/win32main.cpp
+#endif
+
 void Win32Platform::InitializeContext()
 {
     tContextInitData init;
@@ -1629,6 +1633,10 @@ void Win32Platform::InitializeContext()
     init.bpp = mbpp;
 
     init.lockToVsync = false;
+
+#ifdef RAD_VITA
+    init.nSamples = VitaGetMsaaForInit();   // 0, 2 or 4
+#endif
 
     if( mpContext == NULL )
     {

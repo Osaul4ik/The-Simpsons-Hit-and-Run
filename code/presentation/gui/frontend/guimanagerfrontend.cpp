@@ -78,6 +78,10 @@
 
 #define SHOW_SPLASH_SCREEN
 
+#ifdef RAD_VITA
+void VitaApplyConfigFrameRate();   // code/main/win32main.cpp
+#endif
+
 #ifdef RAD_RELEASE
     #ifndef RAD_E3
         #define SHOW_INTRO_MOVIE
@@ -820,10 +824,13 @@ CGuiManagerFrontEnd::StartIntroMovie()
                                     CGuiWindow::GUI_SCREEN_ID_PLAY_MOVIE_INTRO,
                                     CLEAR_WINDOW_HISTORY );
 #else
+#ifdef RAD_VITA
+        // no intro movie in this build: apply the vita.cfg frame rate right away
+        VitaApplyConfigFrameRate();
+#endif
         CGuiManager::HandleMessage( GUI_MSG_GOTO_SCREEN,
                                     CGuiWindow::GUI_SCREEN_ID_INTRO_TRANSITION,
                                     CLEAR_WINDOW_HISTORY );
 #endif // SHOW_INTRO_MOVIE
     }
 }
-

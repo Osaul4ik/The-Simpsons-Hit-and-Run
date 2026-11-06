@@ -41,6 +41,10 @@
 
 #include <input/inputmanager.h>
 
+#ifdef RAD_VITA
+void VitaApplyConfigFrameRate();   // code/main/win32main.cpp
+#endif
+
 
 //===========================================================================
 // Global Data, Local Data, Local Classes
@@ -305,6 +309,10 @@ void CGuiScreenPlayMovie::OnPresentationEventEnd( PresentationEvent* pEvent )
         {
             // finished playing intro movie, now go to main menu
             //
+#ifdef RAD_VITA
+            // switch from the 30 fps start to the rate from vita.cfg
+            VitaApplyConfigFrameRate();
+#endif
             m_pParent->HandleMessage( GUI_MSG_GOTO_SCREEN,
                                       GUI_SCREEN_ID_INTRO_TRANSITION,
                                       CLEAR_WINDOW_HISTORY );
@@ -457,4 +465,3 @@ void CGuiScreenPlayMovie::InitOutro()
 //---------------------------------------------------------------------
 // Private Functions
 //---------------------------------------------------------------------
-
