@@ -94,7 +94,7 @@ Every single thing in this fork sits on top of that foundation.
 
 👉 Original project: [ZenoArrows/The-Simpsons-Hit-and-Run](https://github.com/ZenoArrows/The-Simpsons-Hit-and-Run)
 
-### 🥈 Strict-Top6935, author of the Old 3DS port
+### 🥇 Strict-Top6935, author of the Old 3DS port
 
 Making a game like this run on an Old 3DS takes serious skill and patience. The cheaper pedestrian handling in this fork was inspired by their Old 3DS port, and the lessons from squeezing the game onto such small hardware were a great help in thinking about how to make the Vita version lighter too. A big thank-you for the clever work and for sharing it! 🙌
 
