@@ -270,6 +270,7 @@ Return:         void
 */
 #ifdef RAD_VITA
 bool g_vitaNpcFarCadence = true;     // "npcfar=" in vita.cfg, code/main/win32main.cpp
+float g_vitaNpcUpdateDist = 38.0f;   // "npcdist=" in vita.cfg (metres), also chosen in the Options; the original has 25 m
 #endif
 
 void NPCharacter::OnUpdateRoot( float timeins )
@@ -1533,7 +1534,7 @@ void Character::PreSimUpdate( float timeins )
         static float fovCutoff = 1.0f;
 
 #ifdef RAD_VITA
-        const float DIST_TOO_FAR_TO_UPDATE_SQR = 38.0f * 38.0f;   // the original has 25 m
+        const float DIST_TOO_FAR_TO_UPDATE_SQR = g_vitaNpcUpdateDist * g_vitaNpcUpdateDist;
 #else
         const float DIST_TOO_FAR_TO_UPDATE_SQR = 625.0f;
 #endif
@@ -1577,7 +1578,7 @@ void Character::PreSimUpdate( float timeins )
     unsigned int modulo = 0x7;
     unsigned int frameCount = GetGame()->GetFrameCount();
 #ifdef RAD_VITA
-    // A pedestrian past 38 m that is only walking: its actions and puppet run on every
+    // A pedestrian past the animation distance (npcdist) that is only walking: its actions and puppet run on every
     // 4th frame with the time gathered since, the path it already takes off screen.
     const bool lowDetailActions = g_vitaNpcFarCadence &&
         mRole == ROLE_PEDESTRIAN && mTooFarToUpdate && mbInAnyonesFrustrum &&
@@ -2032,7 +2033,7 @@ void Character::PostSimUpdate( float timeins )
     unsigned int modulo = 0x7;
     unsigned int frameCount = GetGame()->GetFrameCount();
 #ifdef RAD_VITA
-    // A pedestrian past 38 m that is only walking: its actions and puppet run on every
+    // A pedestrian past the animation distance (npcdist) that is only walking: its actions and puppet run on every
     // 4th frame with the time gathered since, the path it already takes off screen.
     const bool lowDetailActions = g_vitaNpcFarCadence &&
         mRole == ROLE_PEDESTRIAN && mTooFarToUpdate && mbInAnyonesFrustrum &&
@@ -5219,5 +5220,3 @@ void NPCharacter::ApplyKickForce( const rmt::Vector& direction, float force )
 
     }
 }
-
-

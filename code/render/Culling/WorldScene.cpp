@@ -300,7 +300,7 @@ extern int g_gxmFadeAlpha;     // pddi/gxm/context.cpp
 #endif
 
 #ifdef RAD_VITA
-float g_vitaSmallThingDist = 100.0f;    // "smalldist=" in vita.cfg, code/main/win32main.cpp
+float g_vitaSmallThingDist = 80.0f;     // "smalldist=" in vita.cfg, code/main/win32main.cpp
 // A street lamp is a small sphere around its post, but its light on the ground reaches farther: it
 // went out while still on screen. So things stay until they are this far outside the view.
 // The camera only asks the tree for what is within about 200 m, so tall buildings of the skyline

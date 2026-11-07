@@ -67,6 +67,8 @@ private:
         MENU_ITEM_DISPLAY_MODE,
 #ifdef RAD_VITA
         MENU_ITEM_MSAA,
+        MENU_ITEM_FILTERING,
+        MENU_ITEM_ANIMATION,
         MENU_ITEM_COMPILE_SHADERS,
 #endif
 
@@ -94,6 +96,19 @@ private:
     void UpdateMsaaLabel();
     void ToggleMsaa( int direction );
 
+    void UpdateFilteringLabel();
+    void ToggleFiltering( int direction );
+
+    void UpdateAnimationLabel();
+    void ToggleAnimation( int direction );
+
+    // the items that are changed with left/right and have no accept action
+    bool IsValueItem( int item ) const
+    {
+        return item == MENU_ITEM_DISPLAY_MODE || item == MENU_ITEM_MSAA ||
+               item == MENU_ITEM_FILTERING || item == MENU_ITEM_ANIMATION;
+    }
+
 
     Scrooby::Text* m_frameRateLabel;    // only when the page has no usable value text for the choice
 
@@ -117,6 +132,11 @@ private:
 
     Scrooby::Text* m_msaaLabel;
     int m_savedMsaa;
+
+    Scrooby::Text* m_filteringLabel;
+    int m_savedFiltering;
+    Scrooby::Text* m_animationLabel;
+    int m_savedNpcDist;
 #endif
 
 };

@@ -50,6 +50,25 @@ int VitaGetMsaa();
 void VitaSetMsaa( int samples );
 bool VitaMsaaNeedsRestart();
 void VitaSaveMsaa();
+int VitaGetFiltering();
+void VitaSetFiltering( int level );
+bool VitaFilteringNeedsRestart();
+void VitaSaveFiltering();
+int VitaGetNpcDist();
+int VitaGetNpcDistLevel();
+void VitaSetNpcDistLevel( int level );
+void VitaSaveNpcDist();
+
+// the frame rates of the Options: 30, 50, 60
+static int FrameRateOfIndex( int index )
+{
+    return index <= 0 ? 30 : index == 1 ? 50 : 60;
+}
+
+static int IndexOfFrameRate( int fps )
+{
+    return fps < 40 ? 0 : fps < 55 ? 1 : 2;
+}
 #endif
 
 //===========================================================================
@@ -113,6 +132,10 @@ CGuiScreenOptions::CGuiScreenOptions
     m_scrollTop( 0 ),
     m_msaaLabel( NULL ),
     m_savedMsaa( VitaGetMsaa() ),
+    m_filteringLabel( NULL ),
+    m_savedFiltering( VitaGetFiltering() ),
+    m_animationLabel( NULL ),
+    m_savedNpcDist( VitaGetNpcDist() ),
     m_compileLabel( NULL ),
     m_shaderStatus( NULL ),
     m_compileNext( -1 ),
@@ -206,8 +229,10 @@ MEMTRACK_PUSH_GROUP( "CGUIScreenOptions" );
             // Controller, Sound, ViewMovies, ViewCredits, frame rate: the new ones are the rows
             // MSAA, compile shaders and (not selectable) the shader status
             m_msaaLabel = pGroup->AddTextLike( first, "Msaa", 0, rowSpacing * 5 );
-            m_compileLabel = pGroup->AddTextLike( first, "CompileShaders", 0, rowSpacing * 6 );
-            m_shaderStatus = pGroup->AddTextLike( first, "ShaderStatus", 0, rowSpacing * 7 );
+            m_filteringLabel = pGroup->AddTextLike( first, "Filtering", 0, rowSpacing * 6 );
+            m_animationLabel = pGroup->AddTextLike( first, "Animation", 0, rowSpacing * 7 );
+            m_compileLabel = pGroup->AddTextLike( first, "CompileShaders", 0, rowSpacing * 8 );
+            m_shaderStatus = pGroup->AddTextLike( first, "ShaderStatus", 0, rowSpacing * 9 );
         }
         if( m_msaaLabel != NULL )
         {
@@ -220,6 +245,31 @@ MEMTRACK_PUSH_GROUP( "CGUIScreenOptions" );
                                   NULL,
                                   SELECTION_ENABLED | VALUES_WRAPPED | TEXT_OUTLINE_ENABLED );
             this->UpdateMsaaLabel();
+        }
+        if( m_filteringLabel != NULL && m_animationLabel != NULL )
+        {
+            // the labels with the restart note are longer than the original ones: a wider box
+            // around the same center
+            Scrooby::Text* wide[ 2 ] = { m_filteringLabel, m_animationLabel };
+            for( int i = 0; i < 2; i++ )
+            {
+                int width = 0, height = 0;
+                wide[ i ]->GetBoundingBoxSize( width, height );
+                if( wide[ i ]->GetHorizontalJustification() == Scrooby::Centre )
+                {
+                    wide[ i ]->SetBoundingBoxSize( width * 2, height );
+                    wide[ i ]->Translate( -width / 2, 0 );
+                }
+            }
+
+            m_pMenu->AddMenuItem( m_filteringLabel,
+                                  NULL, NULL, NULL, NULL, NULL,
+                                  SELECTION_ENABLED | VALUES_WRAPPED | TEXT_OUTLINE_ENABLED );
+            m_pMenu->AddMenuItem( m_animationLabel,
+                                  NULL, NULL, NULL, NULL, NULL,
+                                  SELECTION_ENABLED | VALUES_WRAPPED | TEXT_OUTLINE_ENABLED );
+            this->UpdateFilteringLabel();
+            this->UpdateAnimationLabel();
         }
         if( m_compileLabel != NULL && m_shaderStatus != NULL )
         {
@@ -253,6 +303,8 @@ MEMTRACK_PUSH_GROUP( "CGUIScreenOptions" );
         m_rowTexts[ MENU_ITEM_VIEW_CREDITS ] = pGroup->GetText( "ViewCredits" );
         m_rowTexts[ MENU_ITEM_DISPLAY_MODE ] = m_frameRateLabel;
         m_rowTexts[ MENU_ITEM_MSAA ] = m_msaaLabel;
+        m_rowTexts[ MENU_ITEM_FILTERING ] = m_filteringLabel;
+        m_rowTexts[ MENU_ITEM_ANIMATION ] = m_animationLabel;
         m_rowTexts[ MENU_ITEM_COMPILE_SHADERS ] = m_compileLabel;
         if( m_numRows > NUM_MENU_ITEMS )
         {
@@ -287,7 +339,7 @@ MEMTRACK_PUSH_GROUP( "CGUIScreenOptions" );
 #ifdef RAD_VITA
     if( frameRateValue != NULL )
     {
-        m_pMenu->SetSelectionValueCount( MENU_ITEM_DISPLAY_MODE, 7 );
+        m_pMenu->SetSelectionValueCount( MENU_ITEM_DISPLAY_MODE, 3 );
     }
     this->UpdateFrameRateLabel();
 #else
@@ -491,14 +543,25 @@ void CGuiScreenOptions::HandleMessage
         {
             this->ToggleMsaa( message == GUI_MSG_CONTROLLER_LEFT ? -1 : 1 );
         }
+        if( m_filteringLabel != NULL &&
+            ( message == GUI_MSG_CONTROLLER_LEFT || message == GUI_MSG_CONTROLLER_RIGHT ) &&
+            m_pMenu->GetSelection() == MENU_ITEM_FILTERING )
+        {
+            this->ToggleFiltering( message == GUI_MSG_CONTROLLER_LEFT ? -1 : 1 );
+        }
+        if( m_animationLabel != NULL &&
+            ( message == GUI_MSG_CONTROLLER_LEFT || message == GUI_MSG_CONTROLLER_RIGHT ) &&
+            m_pMenu->GetSelection() == MENU_ITEM_ANIMATION )
+        {
+            this->ToggleAnimation( message == GUI_MSG_CONTROLLER_LEFT ? -1 : 1 );
+        }
 #endif
         switch( message )
         {
             case GUI_MSG_MENU_SELECTION_CHANGED:
             {
 #ifdef RAD_VITA
-                this->SetButtonVisible( BUTTON_ICON_ACCEPT,
-                                        param1 != MENU_ITEM_DISPLAY_MODE && param1 != MENU_ITEM_MSAA );
+                this->SetButtonVisible( BUTTON_ICON_ACCEPT, !this->IsValueItem( static_cast<int>( param1 ) ) );
                 this->UpdateScroll( static_cast<int>( param1 ) );
 #else
                 this->SetButtonVisible( BUTTON_ICON_ACCEPT, param1 != MENU_ITEM_DISPLAY_MODE );
@@ -511,7 +574,7 @@ void CGuiScreenOptions::HandleMessage
 #ifdef RAD_VITA
                 if( param1 == MENU_ITEM_DISPLAY_MODE )
                 {
-                    VitaSetFrameRate( 30 + param2 * 5 );
+                    VitaSetFrameRate( FrameRateOfIndex( static_cast<int>( param2 ) ) );
                 }
 #else
                 if( param1 == MENU_ITEM_DISPLAY_MODE )
@@ -690,15 +753,15 @@ void CGuiScreenOptions::InitIntro()
     //
     if( m_frameRateLabel == NULL )
     {
-        m_pMenu->SetSelectionValue( MENU_ITEM_DISPLAY_MODE, ( VitaGetFrameRate() - 30 ) / 5 );
+        m_pMenu->SetSelectionValue( MENU_ITEM_DISPLAY_MODE, IndexOfFrameRate( VitaGetFrameRate() ) );
     }
     this->UpdateFrameRateLabel();
     this->UpdateMsaaLabel();
+    this->UpdateFilteringLabel();
+    this->UpdateAnimationLabel();
     this->UpdateShaderStatus();
     this->UpdateScroll( m_pMenu->GetSelection() );
-    this->SetButtonVisible( BUTTON_ICON_ACCEPT,
-                            m_pMenu->GetSelection() != MENU_ITEM_DISPLAY_MODE &&
-                            m_pMenu->GetSelection() != MENU_ITEM_MSAA );
+    this->SetButtonVisible( BUTTON_ICON_ACCEPT, !this->IsValueItem( m_pMenu->GetSelection() ) );
 #endif
 
 #ifdef RAD_PS2
@@ -756,6 +819,16 @@ void CGuiScreenOptions::InitOutro()
     {
         VitaSaveMsaa();
         m_savedMsaa = VitaGetMsaa();
+    }
+    if( VitaGetFiltering() != m_savedFiltering )
+    {
+        VitaSaveFiltering();
+        m_savedFiltering = VitaGetFiltering();
+    }
+    if( VitaGetNpcDist() != m_savedNpcDist )
+    {
+        VitaSaveNpcDist();
+        m_savedNpcDist = VitaGetNpcDist();
     }
 #endif
 }
@@ -856,9 +929,8 @@ void CGuiScreenOptions::UpdateShaderCompile()
 
 void CGuiScreenOptions::ToggleFrameRate( int direction )
 {
-    // 30, 35 ... 60 and round again
-    const int fps = VitaGetFrameRate() + direction * 5;
-    VitaSetFrameRate( fps > 60 ? 30 : fps < 30 ? 60 : fps );
+    // 30, 50, 60 and round again
+    VitaSetFrameRate( FrameRateOfIndex( ( IndexOfFrameRate( VitaGetFrameRate() ) + direction + 3 ) % 3 ) );
     this->UpdateFrameRateLabel();
 }
 
@@ -882,12 +954,50 @@ void CGuiScreenOptions::UpdateMsaaLabel()
 
 void CGuiScreenOptions::ToggleMsaa( int direction )
 {
-    // off, 2X, 4X and round again. The display exists already: it takes effect on the next start.
-    const int samples = VitaGetMsaa();
-    int index = samples >= 4 ? 2 : samples >= 2 ? 1 : 0;
-    index = ( index + direction + 3 ) % 3;
-    VitaSetMsaa( index == 2 ? 4 : index == 1 ? 2 : 0 );
+    // 2X or off. The display exists already: it takes effect on the next start.
+    ( void )direction;
+    VitaSetMsaa( VitaGetMsaa() >= 2 ? 0 : 2 );
     this->UpdateMsaaLabel();
+}
+
+static const char* LevelName( int level )
+{
+    return level <= 0 ? "LOW" : level == 1 ? "MEDIUM" : "HIGH";
+}
+
+void CGuiScreenOptions::UpdateFilteringLabel()
+{
+    if( m_filteringLabel != NULL )
+    {
+        char text[ 48 ];
+        snprintf( text, sizeof( text ), "FILTERING %s%s", LevelName( VitaGetFiltering() ),
+                  VitaFilteringNeedsRestart() ? " (RESTART)" : "" );
+        m_filteringLabel->SetString( 0, text );
+    }
+}
+
+void CGuiScreenOptions::ToggleFiltering( int direction )
+{
+    // low, medium, high and round again. The textures exist already: it takes effect on the next start.
+    VitaSetFiltering( ( VitaGetFiltering() + direction + 3 ) % 3 );
+    this->UpdateFilteringLabel();
+}
+
+void CGuiScreenOptions::UpdateAnimationLabel()
+{
+    if( m_animationLabel != NULL )
+    {
+        char text[ 48 ];
+        snprintf( text, sizeof( text ), "ANIMATION %s", LevelName( VitaGetNpcDistLevel() ) );
+        m_animationLabel->SetString( 0, text );
+    }
+}
+
+void CGuiScreenOptions::ToggleAnimation( int direction )
+{
+    // low (25 m), medium (38 m), high (50 m) and round again; used at once
+    VitaSetNpcDistLevel( ( VitaGetNpcDistLevel() + direction + 3 ) % 3 );
+    this->UpdateAnimationLabel();
 }
 
 void CGuiScreenOptions::UpdateScroll( int selection )

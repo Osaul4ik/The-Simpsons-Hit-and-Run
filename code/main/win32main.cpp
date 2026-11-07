@@ -73,16 +73,20 @@ static void ProcessCommandLineArgumentsFromFile();
 //=============================================================================
 // Runtime settings (Vita). Read from ux0:data/simpsons/vita.cfg, one "key=value"
 // per line, so they can be tuned without rebuilding:
-//     msaa=0            0 (off), 2 or 4; also chosen in the Options, takes effect on the next start
-//     fps=30            30 (default), 35, 40, 45, 50, 55 or 60; applied after the intro movie ends
+//     msaa=2            2 (default) or 0 (off); also chosen in the Options, takes effect on the next start
+//     filtering=2       texture sharpness at a distance: 0 = low, 1 = medium, 2 = high (default); also
+//                       chosen in the Options, takes effect on the next start. lodbias= below wins
+//     npcdist=38        metres from the player past which pedestrians are updated less often (the
+//                       original game has 25); the Options offer 25, 38 and 50
+//     fps=30            30 (default), 50 or 60 (other values go to the nearest); applied after the intro movie ends
 //                       (the game starts at 30 with vsync); also chosen in the game's Options
 //                       menu, which rewrites this line. 30 and 60 wait for the screen; the others do
 //                       not, so the picture can tear, and game time follows the clock
 //     zonepreload=1     all the outside zones of a level load behind the loading screen and stay, so
 //                       nothing streams while driving; 0 = they load on the way, the level opens faster
-//     zonecache=8       max zones kept resident after leaving them (0 = off)
+//     zonecache=32      max zones kept resident after leaving them (0 = off)
 //     zonefade=600      milliseconds over which what a zone adds fades in, 0 = it just appears
-//     smalldist=100     metres from which small things (hydrants, ...) are not drawn; the original
+//     smalldist=80      metres from which small things (hydrants, ...) are not drawn; the original
 //                       game has 63, higher costs more draw calls
 //     landmark=30       things with a bounding sphere at least this big in metres are drawn from any
 //                       distance, so that the skyline does not appear at 200 m; 0 = off
@@ -117,7 +121,7 @@ static void ProcessCommandLineArgumentsFromFile();
 #ifdef RAD_VITA
 #include <psp2/power.h>
 #ifndef RAD_VITA_ZONE_CACHE_MAX_ZONES
-#define RAD_VITA_ZONE_CACHE_MAX_ZONES 8
+#define RAD_VITA_ZONE_CACHE_MAX_ZONES 32
 #endif
 #ifndef RAD_VITA_FRAME_RATE
 #define RAD_VITA_FRAME_RATE 30            // 30 or 60
@@ -126,10 +130,20 @@ extern int g_vitaZonePreload;                                  // render/RenderM
 int g_vitaZoneCacheMaxZones = RAD_VITA_ZONE_CACHE_MAX_ZONES;   // read by RenderManager
 int g_gxmFrameRate          = 30;                              // read by gxmDisplay::displayCallback; always 30 (vsync) until the intro movie ends
 #ifndef RAD_VITA_MSAA
-#define RAD_VITA_MSAA 0                   // 0 = off, 2 or 4
+#define RAD_VITA_MSAA 2                   // 0 = off, 2 = 2x
 #endif
 int g_vitaMsaa              = RAD_VITA_MSAA;                   // "msaa=" in vita.cfg, also chosen in the Options; read at start-up only
 static int  s_vitaMsaaActive = -1;                             // the value the display was created with
+#ifndef RAD_VITA_FILTERING
+#define RAD_VITA_FILTERING 2              // 0 = low, 1 = medium, 2 = high
+#endif
+int g_vitaFiltering         = RAD_VITA_FILTERING;              // "filtering=" in vita.cfg, also chosen in the Options; read at start-up only
+static int  s_vitaFilteringActive = -1;                        // the value the textures are made with
+static bool s_vitaLodBiasExplicit = false;                     // "lodbias=" was given: it wins over the filtering
+// Texture LOD bias in 1/8 level steps for low, medium (what the game had), high. Each -1 makes the
+// levels reach 2^(1/8) = 9% farther: high is 41% farther than medium, low 23% less far.
+static const int s_filteringLodBias[3] = { -11, -14, -18 };
+extern float g_vitaNpcUpdateDist;                              // code/worldsim/character/character.cpp
 static int  s_vitaTargetFps = RAD_VITA_FRAME_RATE;             // "fps=" from vita.cfg, applied by VitaApplyConfigFrameRate()
 static bool s_vitaTargetFpsPending = true;
 #ifdef RAD_LOG
@@ -190,7 +204,7 @@ static void LoadVitaConfig()
         }
         else if( sscanf( line, "msaa=%d", &v ) == 1 )
         {
-            g_vitaMsaa = v >= 4 ? 4 : v >= 2 ? 2 : 0;
+            g_vitaMsaa = v >= 2 ? 2 : 0;
         }
         else if( sscanf( line, "log=%d", &v ) == 1 )
         {
@@ -268,8 +282,17 @@ static void LoadVitaConfig()
         {
             g_gxmTrilinear = v != 0;
         }
+        else if( sscanf( line, "filtering=%d", &v ) == 1 )
+        {
+            g_vitaFiltering = v < 0 ? 0 : v > 2 ? 2 : v;
+        }
+        else if( sscanf( line, "npcdist=%d", &v ) == 1 )
+        {
+            g_vitaNpcUpdateDist = (float)( v < 5 ? 5 : v > 200 ? 200 : v );
+        }
         else if( sscanf( line, "lodbias=%d", &v ) == 1 )
         {
+            s_vitaLodBiasExplicit = true;
             g_gxmLodBiasEighths = v < -31 ? -31 : ( v > 32 ? 32 : v );
         }
         else if( sscanf( line, "fastshaders=%d", &v ) == 1 )
@@ -300,8 +323,8 @@ int VitaGetFrameRate()
 
 void VitaSetFrameRate( int fps )
 {
-    // the nearest of 30, 35 ... 60
-    g_gxmFrameRate = fps <= 30 ? 30 : fps >= 60 ? 60 : ( fps + 2 ) / 5 * 5;
+    // the nearest of 30, 50 and 60
+    g_gxmFrameRate = fps < 40 ? 30 : fps < 55 ? 50 : 60;
     g_gxmVsync = g_gxmFrameRate == 30 || g_gxmFrameRate == 60;
 }
 
@@ -326,6 +349,48 @@ int VitaGetMsaaForInit()
     return s_vitaMsaaActive;
 }
 
+// Called once after the config is read: the textures are made with the LOD bias of the filtering.
+void VitaApplyFilteringConfig()
+{
+    s_vitaFilteringActive = g_vitaFiltering;
+    if( !s_vitaLodBiasExplicit )
+    {
+        g_gxmLodBiasEighths = s_filteringLodBias[ g_vitaFiltering ];
+    }
+}
+
+int VitaGetFiltering()
+{
+    return g_vitaFiltering;
+}
+
+void VitaSetFiltering( int level )
+{
+    g_vitaFiltering = level < 0 ? 0 : level > 2 ? 2 : level;
+}
+
+// The textures exist already: a new choice needs a restart.
+bool VitaFilteringNeedsRestart()
+{
+    return s_vitaFilteringActive >= 0 && s_vitaFilteringActive != g_vitaFiltering;
+}
+
+// Animation distance of pedestrians: 0 = 25 m, 1 = 38 m, 2 = 50 m
+int VitaGetNpcDist()
+{
+    return (int)( g_vitaNpcUpdateDist + 0.5f );
+}
+
+int VitaGetNpcDistLevel()
+{
+    return g_vitaNpcUpdateDist <= 31.5f ? 0 : g_vitaNpcUpdateDist <= 44.0f ? 1 : 2;
+}
+
+void VitaSetNpcDistLevel( int level )
+{
+    g_vitaNpcUpdateDist = level <= 0 ? 25.0f : level == 1 ? 38.0f : 50.0f;
+}
+
 int VitaGetMsaa()
 {
     return g_vitaMsaa;
@@ -333,7 +398,7 @@ int VitaGetMsaa()
 
 void VitaSetMsaa( int samples )
 {
-    g_vitaMsaa = samples >= 4 ? 4 : samples >= 2 ? 2 : 0;
+    g_vitaMsaa = samples >= 2 ? 2 : 0;
 }
 
 // The display is created once at start-up, so a new choice needs a restart.
@@ -399,6 +464,16 @@ void VitaSaveFrameRate()
 void VitaSaveMsaa()
 {
     SaveVitaConfigValue( "msaa", g_vitaMsaa );
+}
+
+void VitaSaveFiltering()
+{
+    SaveVitaConfigValue( "filtering", g_vitaFiltering );
+}
+
+void VitaSaveNpcDist()
+{
+    SaveVitaConfigValue( "npcdist", VitaGetNpcDist() );
 }
 #endif
 
@@ -747,6 +822,7 @@ extern "C" int main( int argc, char *argv[] )
 #ifdef RAD_VITA
 	chdir( "ux0:data/simpsons" );
     LoadVitaConfig();
+    VitaApplyFilteringConfig();
 #ifdef RAD_LOG
     g_vitaProfEnabled = g_radLogEnabled && s_vitaProf;
     if( g_radLogEnabled )
