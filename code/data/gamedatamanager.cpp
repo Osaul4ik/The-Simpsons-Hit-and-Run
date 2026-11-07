@@ -899,7 +899,43 @@ GameDataManager::OnFileOperationsComplete( void* pUserData )
         case FILE_OP_OPEN_FOR_READING: // done opening file for reading
         {
             rAssert( m_radFile );
-            rAssert( m_radFile->IsOpen() );
+
+            if( !m_radFile->IsOpen() )
+            {
+                // The save file could not be opened (e.g. not found). On
+                // platforms without a drive error handler (win32/Vita) nothing
+                // else reports this, and reading from a closed file would leave
+                // the game stuck on the load screen. Report the error instead,
+                // so the GUI can continue to the main menu.
+                //
+                radFileError openError = m_radFile->GetLastError();
+                if( openError == Success )
+                {
+                    openError = FileNotFound;
+                }
+                m_lastError = openError;
+
+                rReleasePrintf( ">> Load game failed: could not open save file (error %d).\n\n",
+                                (int)openError );
+
+                m_radFile->Release();
+                m_radFile = NULL;
+
+                if( m_gameDataBuffer != NULL )
+                {
+                    delete [] m_gameDataBuffer;
+                    m_gameDataBuffer = NULL;
+                }
+
+                m_currentFileOperation = FILE_OP_NONE;
+
+                if( m_gameDataLoadCallback != NULL )
+                {
+                    m_gameDataLoadCallback->OnLoadGameComplete( openError );
+                }
+
+                break;
+            }
 
             m_radFile->ReadAsync( m_gameDataBuffer,
                                   m_gameDataSize );
@@ -1282,4 +1318,3 @@ GameDataManager::PrintRawData( GameDataByte* dataBuffer,
         rDebugPrintf( "[ %02X ]", dataBuffer[ i ] );
     }
 }
-

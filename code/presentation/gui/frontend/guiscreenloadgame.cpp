@@ -923,6 +923,15 @@ CGuiScreenAutoLoad::OnLoadGameComplete( radFileError errorCode )
     {
         m_pParent->HandleMessage( GUI_MSG_MEMCARD_CHECK_COMPLETED );
     }
+    else if( errorCode == FileNotFound )
+    {
+        // No saved game found: not an error for auto-load, just continue
+        // to the main menu without a prompt.
+        //
+        rReleasePrintf( "Auto-load: saved game not found, continuing to main menu.\n" );
+        m_lastError = errorCode;
+        m_pParent->HandleMessage( GUI_MSG_MEMCARD_CHECK_COMPLETED );
+    }
     else
     {
         CGuiScreenLoadGame::OnLoadGameComplete( errorCode );
@@ -1039,4 +1048,3 @@ CGuiScreenAutoLoad::LoadGame()
 #endif
 #endif
 }
-

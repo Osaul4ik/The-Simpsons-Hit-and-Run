@@ -27,6 +27,7 @@
 #include <limits.h>
 #include "vitadrive.hpp"
 #include <string>
+#include <string.h>
 #include <psp2/io/devctl.h>
 #include <psp2/io/fcntl.h>
 #include <unistd.h>
@@ -89,8 +90,13 @@ radVitaDrive::radVitaDrive( const char* pdrivespec, radMemoryAllocator alloc )
     rAssert( m_pDriveThread != NULL );
 
     //
-    // Copy the drivename
+    // Copy the drivename.
+    // m_DrivePath must start out empty: the object memory is not zeroed, and when
+    // the requested drive is the default one (the save game drive is "UX0:") the
+    // branch below does not touch it. Garbage in it made every save game path
+    // invalid, so existing saves were reported as "not found".
     //
+    m_DrivePath[ 0 ] = '\0';
     radGetDefaultDrive( m_DriveName );
     if ( strcmp(m_DriveName, pdrivespec ) != 0 )
     {
@@ -104,9 +110,25 @@ radVitaDrive::radVitaDrive( const char* pdrivespec, radMemoryAllocator alloc )
 
     if(!m_DrivePath[0])
     {
-        getcwd( m_DrivePath, radFileFilenameMax );
-        strncat(m_DrivePath, "/", radFileFilenameMax);
+        //
+        // Use the working directory (main() does chdir to ux0:data/simpsons).
+        // If it is not available or has no device prefix, fall back to the
+        // game data folder, so that saves are always found in the same place.
+        //
+        if( getcwd( m_DrivePath, radFileFilenameMax ) == NULL ||
+            m_DrivePath[0] == '\0' ||
+            strchr( m_DrivePath, ':' ) == NULL )
+        {
+            strncpy( m_DrivePath, "ux0:data/simpsons", radFileFilenameMax );
+        }
         m_DrivePath[radFileFilenameMax] = '\0';
+
+        size_t len = strlen( m_DrivePath );
+        if( len > 0 && m_DrivePath[ len - 1 ] != '/' && len < radFileFilenameMax )
+        {
+            m_DrivePath[ len ] = '/';
+            m_DrivePath[ len + 1 ] = '\0';
+        }
     }
 
     m_Capabilities = ( radDriveWriteable | radDriveFile );
@@ -223,17 +245,26 @@ radDrive::CompletionStatus radVitaDrive::OpenFile
         return Error;
     }
 
-    *pHandle = (radFileHandle)sceIoOpen( fullName, createFlags, 0777 );
+    //
+    // sceIoOpen returns a negative SCE error code on failure, not 0/NULL.
+    // The old "if ( *pHandle )" treated a failed open as success, so missing
+    // files looked open (with a bogus size) and later reads failed with
+    // FileNotFound.
+    //
+    SceUID fd = sceIoOpen( fullName, createFlags, 0777 );
 
-    if ( *pHandle )
+    if ( fd >= 0 )
     {
+        *pHandle = (radFileHandle)fd;
         m_OpenFiles++;
-        *pSize = sceIoLseek((SceUID)*pHandle, 0, SCE_SEEK_END);
+        SceOff size = sceIoLseek( fd, 0, SCE_SEEK_END );
+        *pSize = size > 0 ? (unsigned int)size : 0;
         m_LastError = Success;
         return Complete;
     }
     else
     {
+        *pHandle = (radFileHandle)0;
         m_LastError = FileNotFound;
         return Error;
     }
