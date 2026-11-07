@@ -56,6 +56,25 @@ Open **Options** in the game to change these. They are remembered between launch
 | **Animation** | Low / Medium / High | How far from you pedestrians get full-rate animation: 25 m / 38 m / 50 m. Applies immediately. |
 | **Compile shaders** | | Shows the shader status and lets you compile the optimized shaders. |
 
+## 🛠️ Compile shaders (one-time setup)
+
+For the best performance, run **Options → Compile shaders** once. It builds the optimized shader versions the game can use, including **GPU skinning** for characters. 🚀
+
+1. 🔑 Make sure `libshacccg.suprx` is installed (see *What you need*). Without it the game shows **SHADER COMPILER NOT FOUND**.
+2. ▶️ Open **Options** and press the **Compile shaders** entry. Nothing is compiled on its own, only when you start it here.
+3. ⏳ Wait while it works through the list (**COMPILING 1 OF …**). Each shader can take a few seconds, and the picture may freeze for a moment. That is normal, so please do not close the game.
+4. 🔄 When it says **RESTART THE GAME TO USE THEM**, close the game and start it again.
+
+The line under the entry shows what the game is using right now:
+- **USING ORIGINAL SHADERS**: the shaders that come with the game
+- **USING OPTIMIZED SHADERS**: the compiled optimized shaders
+- **USING OPTIMIZED SHADERS AND GPU SKINNING**: everything is on ✅
+
+The compiled shaders are saved in `ux0:/data/simpsons/shadercache`, so you only need to do this once. They stay there when you reinstall the game, as long as you keep the `simpsons` data folder. 💾
+
+---
+
+
 ## 🧪 Advanced settings (`vita.cfg`)
 
 Want to fine tune things? Create a text file at `ux0:/data/simpsons/vita.cfg` with one `key=value` per line. Missing file or missing key means the default. The most useful keys:
@@ -74,7 +93,16 @@ Want to fine tune things? Create a text file at `ux0:/data/simpsons/vita.cfg` wi
 
 There are more keys (culling margins, particle budget, sound thread and others). The full list with explanations is in the comment at the top of [`code/main/win32main.cpp`](code/main/win32main.cpp).
 
----
+## 🎞️ Screenshots
+<p align="center">
+  <img src="2026-11-07-092655.jpg" alt="The Simpsons: Hit & Run" width="500">
+</p>
+<p align="center">
+  <img src="2026-11-07-091338.jpg" alt="The Simpsons: Hit & Run" width="500">
+</p>
+<p align="center">
+  <img src="2026-11-07-092841.jpg" alt="The Simpsons: Hit & Run" width="500">
+</p>
 
 ## 🔨 Building
 
