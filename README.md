@@ -1,11 +1,15 @@
-# 🍩 D'oh! The Simpsons: Hit & Run for PS Vita 🎮
+<p align="center">
+  <img src="The_Simpsons_Hit_%26_Run_Logo.webp" alt="The Simpsons: Hit & Run" width="500">
+</p>
+
+# 🍩 D'oh! The Simpsons: Hit & Run for PS Vita
 
 Welcome, and thanks for stopping by! 👋
 
 This is a PS Vita port of *The Simpsons: Hit & Run*, built from the leaked source code. 
 This fork is all about making the game run smoother and more reliably on the Vita: better frame rates, fewer hitches while driving, and a few new options you can change right from the in-game Options menu.
 
-> 🙏 This is a fork of [ZenoArrows' port](https://github.com/ZenoArrows/The-Simpsons-Hit-and-Run). Please read the big **thank-you** section at the bottom, because this project would not exist without them!
+> This is a fork of [ZenoArrows' port](https://github.com/ZenoArrows/The-Simpsons-Hit-and-Run). Please read the big **thank-you** section at the bottom, because this project would not exist without them!
 
 ---
 
@@ -19,7 +23,7 @@ This fork is all about making the game run smoother and more reliably on the Vit
 
 1. 💻 Install the PC version of the game on your computer.
 2. 📂 Copy the contents of the game's installation folder to `ux0:/data/simpsons` on your Vita.
-   - 🎬 Use the original `.rmv` movie files in the `movies` folder (not converted `.bk2` files).
+   - Use the original `.rmv` movie files in the `movies` folder (not converted `.bk2` files).
 3. ⬇️ Download the `.vpk` from the [Releases](https://github.com/Osaul4ik/The-Simpsons-Hit-and-Run/releases) page of this repository, copy it to your Vita and install it with [VitaShell](https://github.com/TheOfficialFloW/VitaShell).
 4. 🎉 Launch the game and have fun!
 
@@ -27,23 +31,21 @@ This fork is all about making the game run smoother and more reliably on the Vit
 
 The PAL version supports several languages and uses the system language of your console. If your language is not supported, a menu lets you pick one of the supported languages.
 
-No official release contains the dialog files for all four languages, so make sure the game assets you use are localized in the language you want to play. If you just want English, use the NTSC version. 🇬🇧
+No official release contains the dialog files for all four languages, so make sure the game assets you use are localized in the language you want to play. If you just want English, use the NTSC version.
 
 ---
 
 ## ⚙️ Options menu
 
-Open **Options** in the game to change these. They are remembered between launches. 💾
+Open **Options** in the game to change these. They are remembered between launches.
 
 | Option | Choices | Notes |
 |---|---|---|
-| 🎞️ **Frame rate** | 30 / 50 / 60 fps | The game always starts at 30 fps and switches to your choice when the intro movie ends. 30 and 60 are synced to the screen. 50 is not, so you may notice some tearing. |
-| ✨ **MSAA** | Off / 2x | Smoother edges. Takes effect after restarting the game. |
-| 🔍 **Filtering** | Low / Medium / High | How sharp textures stay in the distance (roads especially). High is the default. Takes effect after restarting the game. |
-| 🚶 **Animation** | Low / Medium / High | How far from you pedestrians get full-rate animation: 25 m / 38 m / 50 m. Applies immediately. |
-| 🛠️ **Compile shaders** | | Shows the shader status and lets you compile the optimized shaders. |
-
-📜 The Options list scrolls when it does not fit on the screen.
+| **Frame rate** | 30 / 50 / 60 fps | The game always starts at 30 fps and switches to your choice when the intro movie ends. 30 and 60 are synced to the screen. 50 is not, so you may notice some tearing. |
+| **MSAA** | Off / 2x | Smoother edges. Takes effect after restarting the game. |
+| **Filtering** | Low / Medium / High | How sharp textures stay in the distance (roads especially). High is the default. Takes effect after restarting the game. |
+| **Animation** | Low / Medium / High | How far from you pedestrians get full-rate animation: 25 m / 38 m / 50 m. Applies immediately. |
+| **Compile shaders** | | Shows the shader status and lets you compile the optimized shaders. |
 
 ## 🧪 Advanced settings (`vita.cfg`)
 
@@ -88,7 +90,6 @@ Every single thing in this fork sits on top of that foundation.
 Making a game like this run on an Old 3DS takes serious skill and patience. The cheaper pedestrian handling in this fork was inspired by their Old 3DS port, and the lessons from squeezing the game onto such small hardware were a great help in thinking about how to make the Vita version lighter too. A big thank-you for the clever work and for sharing it! 🙌
 
 👉 [u/Strict-Top6935](https://www.reddit.com/user/Strict-Top6935/)
-
 
 ---
 
