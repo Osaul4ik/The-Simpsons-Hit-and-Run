@@ -257,8 +257,12 @@ MEMTRACK_PUSH_GROUP( "CGUIScreenOptions" );
                 wide[ i ]->GetBoundingBoxSize( width, height );
                 if( wide[ i ]->GetHorizontalJustification() == Scrooby::Centre )
                 {
+                    // moved by the position, not by Translate: the menu resets the transformation
+                    // of its items, and the text would jump back to the right
+                    int x = 0, y = 0;
+                    wide[ i ]->GetOriginPosition( x, y );
                     wide[ i ]->SetBoundingBoxSize( width * 2, height );
-                    wide[ i ]->Translate( -width / 2, 0 );
+                    wide[ i ]->SetPosition( x - width / 2, y );
                 }
             }
 
