@@ -27,6 +27,15 @@ This fork is all about making the game run smoother and more reliably on the Vit
 3. ⬇️ Download the `.vpk` from the [Releases](https://github.com/Osaul4ik/The-Simpsons-Hit-and-Run/releases) page of this repository, copy it to your Vita and install it with [VitaShell](https://github.com/TheOfficialFloW/VitaShell).
 4. 🎉 Launch the game and have fun!
 
+## 🔄 Update from an older version
+
+Already have an older version of the game installed? Updating is quick, and you do not need to copy the game files again:
+
+1. 🧹 Uninstall the game itself.
+2. 📁 **Keep** the `simpsons` folder inside `ux0:/data`.
+3. ⬇️ Download the new `.vpk` from the [Releases](https://github.com/Osaul4ik/The-Simpsons-Hit-and-Run/releases) page, copy it to your Vita and install it with [VitaShell](https://github.com/TheOfficialFloW/VitaShell).
+4. 🎉 Launch the game and enjoy the new version!
+
 ## 🌍 Languages
 
 The PAL version supports several languages and uses the system language of your console. If your language is not supported, a menu lets you pick one of the supported languages.
