@@ -17,7 +17,7 @@ This fork is all about making the game run smoother and more reliably on the Vit
 
 - 🎮 A PS Vita (or PS TV) with custom firmware
 - 💿 The **PC version** of the game (official release, not the assets from the source leak)
-- 🔑 `libshacccg.suprx` installed on your console. It is set up during the first run of the [VitaDB Downloader](https://vitadb.rinnegatamante.it/#/info/877), or you can install it separately with [ShaRKBR33D](https://vitadb.rinnegatamante.it/#/info/997).
+- 🔑 `libshacccg.suprx` installed on your console. It is set up during the first run of the [Vita Troubleshooting guide](https://cimmerian.gitbook.io/vita-troubleshooting-guide/shader-compiler/extract-libshacccg.suprx), or you can install it separately with [ShaRKBR33D](https://github.com/Rinnegatamante/ShaRKBR33D).
 
 ## 📦 Installation
 
